@@ -1,0 +1,25 @@
+{:paths   ["src"]
+ :deps    {com.cemerick/url                    {:mvn/version "0.1.1"}
+           com.taoensso/timbre                 {:mvn/version "6.5.0"}
+           io.replikativ/datahike              {:mvn/version "0.6.1568"}
+           mount/mount                         {:mvn/version "0.1.18"}
+           net.clojars.wkok/openai-clojure     {:mvn/version "0.18.1"}
+           org.apache.logging.log4j/log4j-api  {:mvn/version "2.23.1"} ; ToDo: Move logging to :dev.
+           org.apache.logging.log4j/log4j-core {:mvn/version "2.23.1"} ; ToDo: Move logging to :dev.
+           org.clojure/clojure                 {:mvn/version "1.11.3"}
+           org.clojure/data.xml                {:mvn/version "0.2.0-alpha9"}
+           org.slf4j/slf4j-nop                 {:mvn/version "2.0.13"}}    ; Stop spurious logging!
+ ;; See .dir-locals.el for some defaults on CIDER C-c M-j
+ :aliases {:dev        {:jvm-opts       ["-XX:-OmitStackTraceInFastThrow"] ; https://www.metosin.fi/blog/missing-stacktraces/
+                        :extra-deps     {com.lambdaisland/classpath   {:mvn/version "0.5.48"}
+                                         expound/expound                 {:mvn/version "0.9.0"} ; more readable spec messages
+                                         org.clojure/tools.namespace     {:mvn/version "1.5.0"}}}
+
+           :test       {:extra-paths    ["src/server" "test" "env/dev"]
+                        :main-opts      ["-m" "kaocha.runner"]
+                        :extra-deps     {lambdaisland/kaocha          {:mvn/version "1.91.1392"}
+                                         com.lambdaisland/classpath   {:mvn/version "0.5.48"}
+                                         org.clojure/tools.namespace  {:mvn/version "1.5.0"}}}
+
+           :build    {:deps {io.github.clojure/tools.build {:mvn/version "0.10.4"}}
+                      :ns-default build}}}
