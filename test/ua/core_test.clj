@@ -1,8 +1,9 @@
 (ns ua.core-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [ua.core        :as core]
-   [ua.db-util     :as dbu :refer [read-xml]]))
+   [ua.core        :as core :refer [rewrite-xml]]
+   [ua.db-util     :as dbu]
+   [ua.xml-util    :as xu :refer [read-xml]]))
 
 (def alias? (atom (-> (ns-aliases *ns*) keys set)))
 
@@ -45,17 +46,52 @@
     (xt xml)
     @tag-atm))
 
-;;; Most others didn't have .xsd
-(def more-ns-maps
-  {:p->u
-   {"uaTypes" "http://opcfoundation.org/UA/2008/02/Types.xsd"}
-   :u->ps
-   {"http://opcfoundation.org/UA/2008/02/Types.xsd" ["uaTypes"]}})
-
-(defn tryme []
+(defn find-tags []
   (-> (read-xml "data/OPC_UA_Core_Model_2710599569.xml" {:root-name "p5"})
       (xml-tags p5-tags))
   (-> (read-xml "data/Opc.Ua.Robotics.NodeSet2.xml" {:root-name "p5"})
       (xml-tags robot-tags))
   {:p5 @p5-tags
    :robot @robot-tags})
+
+(def robot (read-xml "data/Opc.Ua.Robotics.NodeSet2.xml" {:root-name "p5"}))
+
+
+(defn tryme []
+  (->> (read-xml #_"data/Opc.Ua.Robotics.NodeSet2.xml"
+                 "data/tiny.xml"
+                 {:root-name "p5"})
+       #_:xml/content
+       #_(mapv rewrite-xml)))
+
+(def example-ua-variable
+  '#:xml{:tag :p5/UAVariable,
+         :attrs {:NodeId "ns=1;i=15740", :BrowseName "1:OperationalMode", :ParentNodeId "ns=1;i=15698", :DataType "ns=1;i=3006"},
+         :content
+         [#:xml{:tag :p5/DisplayName, :content "OperationalMode"}
+          #:xml{:tag :p5/Description,
+                :content
+                "The OperationalMode variable provides information about the current operational mode. Allowed values are described in OperationalModeEnumeration, see ISO 10218-1:2011 Ch.5.7 Operational Modes."}
+          #:xml{:tag :p5/References,
+                :content
+                [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasTypeDefinition"}, :content "i=63"}
+                 #:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasModellingRule"}, :content "i=78"}
+                 #:xml{:tag :p5/Reference,
+                       :attrs {:ReferenceType "HasComponent", :IsForward "false"},
+                       :content "ns=1;i=15698"}]}]})
+
+(deftest parse-parts
+  (testing "Testing parse of various small components"
+    (testing "Testing parse of UAVariable"
+      (is (= (core/rewrite-xml example-ua-variable)
+             {:UAbase/NodeId "ns=1;i=15740",
+              :UAbase/BrowseName "1:OperationalMode",
+              :UAbase/ParentNodeId "ns=1;i=15698",
+              :UAbase/DataType "ns=1;i=3006",
+              :UAVariable/DisplayName "OperationalMode",
+              :UAVariable/Description
+              "The OperationalMode variable provides information about the current operational mode. Allowed values are described in OperationalModeEnumeration, see ISO 10218-1:2011 Ch.5.7 Operational Modes.",
+              :UAVariable/References
+              [{:UAbase/ReferenceType "HasTypeDefinition", :Reference/id "i=63"}
+               {:UAbase/ReferenceType "HasModellingRule", :Reference/id "i=78"}
+               {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
