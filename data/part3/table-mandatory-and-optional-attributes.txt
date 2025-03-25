@@ -1,0 +1,154 @@
+{
+    "Object": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "EventNotifier"
+      ],
+      "OptionalAttributes": [
+        "Description"
+      ]
+    },
+    "Variable": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "Value",
+        "DataType",
+        "ValueRank",
+        "AccessLevel",
+        "UserAccessLevel",
+        "Historizing"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "ArrayDimensions",
+        "MinimumSamplingInterval",
+        "AccessRestrictions",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessLevelEx",
+        "WriteMaskEx",
+        "UserWriteMaskEx"
+      ]
+    },
+    "Method": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "Executable",
+        "UserExecutable"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessRestrictions"
+      ]
+    },
+    "ObjectType": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "IsAbstract"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessRestrictions"
+      ]
+    },
+    "VariableType": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "Value",
+        "DataType",
+        "ValueRank",
+        "IsAbstract"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "ArrayDimensions",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessRestrictions"
+      ]
+    },
+    "ReferenceType": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "IsAbstract",
+        "Symmetric",
+        "InverseName"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessRestrictions"
+      ]
+    },
+    "DataType": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "IsAbstract"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessRestrictions"
+      ]
+    },
+    "View": {
+      "MandatoryAttributes": [
+        "NodeId",
+        "NodeClass",
+        "BrowseName",
+        "DisplayName",
+        "WriteMask",
+        "UserWriteMask",
+        "ContainsNoLoops",
+        "EventNotifier"
+      ],
+      "OptionalAttributes": [
+        "Description",
+        "RolePermissions",
+        "UserRolePermissions",
+        "AccessRestrictions"
+      ]
+    }
+  }
+

@@ -1,0 +1,27 @@
+{
+  "libraries": [
+    {
+      "version": "0.1.0",
+      "display_name": "",
+      "relative_name": "http://peter.nist.gov/ambusageexample",
+      "description": null,
+      "fqn": [
+        "http://peter.nist.gov/ambusageexample"
+      ],
+      "document": null
+    }
+  ],
+  "meta": {
+    "file_version": "4.0.1",
+    "database_name": "",
+    "export_timestamp": "2025-03-21T00:00:00Z",
+    "export_library_fqn": [
+      "http://peter.nist.gov/ambusageexample"
+    ],
+    "database_schema_version": ""
+  },
+  "types": [],
+  "quantities": [],
+  "enumeration_types": [],
+  "measurement_units": []
+}

@@ -3,7 +3,7 @@
   (:require
    [datahike.api          :as d]
    [datahike.pull-api     :as dp]
-   [taoensso.timbre       :as log]))
+   [taoensso.telemere     :as log :refer [log!]]))
 
 (def db-cfg-atm "Configuration map used for connecting to the db. It is set in core."  (atom nil))
 (def ^diag diag (atom nil))
@@ -15,7 +15,7 @@
   (when-let [db-cfg @db-cfg-atm]
     (if (d/database-exists? db-cfg)
       (d/connect db-cfg)
-      (log/warn "There is no DB to connect to."))))
+      (log! :warn "There is no DB to connect to."))))
 
 ;;; ToDo:
 ;;;  - cljs complains about not finding x/element-nss, which I don't see in the  0.2.0-alpha8 source at all.
@@ -128,7 +128,7 @@
    If the schema uses 'xs' for 'http://www.w3.org/2001/XMLSchema', change it to xsd"
   [nspaces & {:keys [root-name] :or {root-name "ROOT"}}]
   (when (-> nspaces :p->u (contains? root-name))
-    (log/warn "XML uses explicit 'root' namespace alias.")) ; ToDo: So pick something else.
+    (log! :warn "XML uses explicit 'root' namespace alias.")) ; ToDo: So pick something else.
   (as-> nspaces ?ns
     (assoc-in ?ns [:p->u root-name] (or (get (:p->u ?ns) "") :mm_nil))
     (update ?ns :p->u #(dissoc % ""))

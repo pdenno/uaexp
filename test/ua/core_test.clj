@@ -3,6 +3,7 @@
    [clojure.test :refer [deftest is testing]]
    [ua.core        :as core :refer [rewrite-xml]]
    [ua.db-util     :as dbu]
+   [jsonista.core  :as json]
    [ua.xml-util    :as xu :refer [read-xml]]))
 
 (def alias? (atom (-> (ns-aliases *ns*) keys set)))
@@ -95,3 +96,92 @@
               [{:UAbase/ReferenceType "HasTypeDefinition", :Reference/id "i=63"}
                {:UAbase/ReferenceType "HasModellingRule", :Reference/id "i=78"}
                {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
+
+
+(def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" xu/read-xml #_:xml/content))
+
+;;; (get-attrs (-> x5 :xml/content first :xml/content rest vec))
+(defn get-attrs
+  "Return a list of all the attribute names in the argument chunk of XML."
+  [xml]
+  (let [attrs-atm (atom #{})]
+    (letfn [(geta [obj]
+              (cond (map? obj)     (let [{:xml/keys [attrs content]} obj]
+                                     (when attrs (swap! attrs-atm into (keys attrs)))
+                                     (when content (geta content)))
+                    (vector? obj)  (doseq [x obj] (geta x))))]
+      (geta xml)
+      (-> attrs-atm deref sort))))
+
+(def ua-attrs (-> "data/part3/table-mandatory-and-optional-attributes.txt" slurp  json/read-value))
+
+(def foo
+  {"VariableType"
+   {"MandatoryAttributes"
+    ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "Value" "DataType" "ValueRank" "IsAbstract"],
+    "OptionalAttributes" ["Description" "ArrayDimensions" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
+   "View"
+   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "ContainsNoLoops" "EventNotifier"],
+    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
+   "DataType"
+   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "IsAbstract"],
+    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
+   "Object"
+   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "EventNotifier"],
+    "OptionalAttributes" ["Description"]},
+   "Method"
+   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "Executable" "UserExecutable"],
+    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
+   "Variable"
+   {"MandatoryAttributes"
+    ["NodeId"
+     "NodeClass"
+     "BrowseName"
+     "DisplayName"
+     "WriteMask"
+     "UserWriteMask"
+     "Value"
+     "DataType"
+     "ValueRank"
+     "AccessLevel"
+   "UserAccessLevel"
+     "Historizing"],
+    "OptionalAttributes"
+    ["Description"
+     "ArrayDimensions"
+     "MinimumSamplingInterval"
+     "AccessRestrictions"
+     "RolePermissions"
+     "UserRolePermissions"
+     "AccessLevelEx"
+     "WriteMaskEx"
+     "UserWriteMaskEx"]},
+   "ObjectType"
+   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "IsAbstract"],
+    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
+   "ReferenceType"
+   {"MandatoryAttributes"
+    ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "IsAbstract" "Symmetric" "InverseName"],
+    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]}})
+
+(defn cng-attr [obj]
+  (cond (map? obj) (reduce-kv (fn [m k v] (cond (= k "MandatoryAttributes") (assoc m :mandatory (cng-attr v))
+                                                (= k "OptionalAttributes") (assoc m :optional (cng-attr v))
+                                                :else (assoc m k (cng-attr v))))
+                              {} obj)
+        (vector? obj)  (->> obj (mapv keyword) set)
+        :else obj))
+
+
+(defn tags&attrs
+  "Return a map of all tags and elements."
+  [xml]
+  (let [res (atom {:tags #{} :attrs #{}})]
+    (letfn [(t&a [x]
+              (cond (map? x)       (doseq [[k v] x]
+                                     (cond (= :xml/tag   k)  (swap! res #(update % :tags  conj v))
+                                           (= :xml/attrs k)  (swap! res #(update % :attrs into (keys v))))
+                                     (t&a v))
+                    (vector? x)    (doseq [e x] (t&a e))))]
+      (t&a xml))
+    (-> res deref (update-vals #(->> % (sort-by name) vec)))))
