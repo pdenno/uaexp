@@ -31,7 +31,8 @@
   (safe-alias 'p      'promesa.core)
   (safe-alias 'px     'promesa.exec)
   (safe-alias 'core   'ua.core)
-  (safe-alias 'dbu    'ua.db-util))
+  (safe-alias 'dbu    'ua.db-util)
+  (safe-alias 'xu     'ua.xml-utils))
 
 (def p5-tags (atom #{}))
 (def robot-tags (atom #{}))
@@ -57,8 +58,7 @@
 
 (def robot (read-xml "data/Opc.Ua.Robotics.NodeSet2.xml" {:root-name "p5"}))
 
-
-(defn tryme []
+#_(defn tryme []
   (->> (read-xml #_"data/Opc.Ua.Robotics.NodeSet2.xml"
                  "data/tiny.xml"
                  {:root-name "p5"})
@@ -97,8 +97,7 @@
                {:UAbase/ReferenceType "HasModellingRule", :Reference/id "i=78"}
                {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
 
-
-(def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" xu/read-xml #_:xml/content))
+(def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5") #_(update :xml/content no-tags)))
 
 ;;; (get-attrs (-> x5 :xml/content first :xml/content rest vec))
 (defn get-attrs
@@ -185,3 +184,21 @@
                     (vector? x)    (doseq [e x] (t&a e))))]
       (t&a xml))
     (-> res deref (update-vals #(->> % (sort-by name) vec)))))
+
+
+
+(def tiny-xml '[#:xml{:tag :p5/UANodeSet,
+                      :attrs {:LastModified "2021-05-20T00:00:00Z"},
+                      :content
+                      [#:xml{:tag :p5/Aliases,
+                             :content
+                             [#:xml{:tag :p5/Alias, :attrs {:Alias "Boolean"}, :content "i=1"}
+                              #:xml{:tag :p5/Alias, :attrs {:Alias "HasDescription"}, :content "i=39"}]}]}])
+
+;;; ToDo: After I demonstrate the simplest parsing working, consider transforming everything to tagged elements.
+;;;       The problem is the same UA concept can be serialized either way in some cases.
+(defn tryme []
+  (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet))
+
+
+

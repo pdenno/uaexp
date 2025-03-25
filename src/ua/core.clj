@@ -167,26 +167,55 @@
      :XmlSchemaUri}})      ; On Model element
 
 ;;; ToDo: isForward, a common XML attribute, is not in this list. Why?
-(def attr-status
-  "Mandatory and optional attributes of the 8 NodeClasses. This was created from Part 3 Clause 5.9 Table 7."
-  {"VariableType"  {:mandatory #{:ValueRank :IsAbstract :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
-                    :optional #{:AccessRestrictions :RolePermissions :ArrayDimensions :Description :UserRolePermissions}},
-   "View"          {:mandatory #{:DisplayName :BrowseName :WriteMask :ContainsNoLoops :EventNotifier :NodeClass :NodeId :UserWriteMask},
-                    :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
-   "DataType"      {:mandatory #{:IsAbstract :DisplayName :BrowseName :WriteMask :NodeClass :NodeId :UserWriteMask},
-                    :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
-   "Object"        {:mandatory #{:DisplayName :BrowseName :WriteMask :EventNotifier :NodeClass :NodeId :UserWriteMask},
-                    :optional #{:Description}},
-   "Method"        {:mandatory #{:DisplayName :BrowseName :WriteMask :UserExecutable :NodeClass :Executable :NodeId :UserWriteMask},
-                    :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
-   "Variable"      {:mandatory #{:AccessLevel :ValueRank :Historizing :UserAccessLevel :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
-                    :optional #{:UserWriteMaskEx :AccessRestrictions :MinimumSamplingInterval :RolePermissions :ArrayDimensions :WriteMaskEx :Description :UserRolePermissions :AccessLevelEx}},
-   "ObjectType"    {:mandatory #{:IsAbstract :DisplayName :BrowseName :WriteMask :NodeClass :NodeId :UserWriteMask},
-                    :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
-   "ReferenceType" {:mandatory #{:InverseName :IsAbstract :DisplayName :BrowseName :WriteMask :Symmetric :NodeClass :NodeId :UserWriteMask},
-                    :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}}})
+(def attr-status-keys
+  "Mandatory and optional attributes of the 8 NodeClasses. This was created from Part 3 Clause 5.9 Table 7.
+   Note that attributes need not be encoded as XML attributes. The commented values are because things can default."
+  {:p5/VariableType  {:mandatory #{#_:ValueRank #_:IsAbstract :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
+                      :optional #{:AccessRestrictions :RolePermissions :ArrayDimensions :Description :UserRolePermissions :ValueRank}},
+   :p5/View          {:mandatory #{:DisplayName :BrowseName :WriteMask :ContainsNoLoops :EventNotifier :NodeClass :NodeId :UserWriteMask},
+                      :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+   :p5/DataType      {:mandatory #{:IsAbstract :DisplayName :BrowseName :WriteMask :NodeClass :NodeId :UserWriteMask},
+                      :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+   :p5/Object        {:mandatory #{:DisplayName :BrowseName :WriteMask :EventNotifier :NodeClass :NodeId :UserWriteMask},
+                      :optional #{:Description}},
+   :p5/Method        {:mandatory #{:DisplayName :BrowseName :WriteMask :UserExecutable :NodeClass :Executable :NodeId :UserWriteMask},
+                      :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+   :p5/Variable      {:mandatory #{:AccessLevel :ValueRank :Historizing :UserAccessLevel :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
+                      :optional #{:UserWriteMaskEx :AccessRestrictions :MinimumSamplingInterval :RolePermissions :ArrayDimensions :WriteMaskEx :Description :UserRolePermissions :AccessLevelEx}},
+   :p5/ObjectType    {:mandatory #{:IsAbstract :DisplayName :BrowseName :WriteMask :NodeClass :NodeId :UserWriteMask},
+                      :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+   :p5/ReferenceType {:mandatory #{:InverseName :IsAbstract :DisplayName :BrowseName :WriteMask :Symmetric :NodeClass :NodeId :UserWriteMask},
+                      :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}}})
 
-(defn is-elem? #{:RolePermissions, :UserRolePermissions})
+(def default-attr-vals
+  {"ValueRank" 0
+   "IsAbstract" false})
+
+;;; ToDo: Study, for example, ObjectType https://reference.opcfoundation.org/Core/Part5/v104/docs/6
+(def additional-properties
+  "Properties for which I haven't yet studied the documentation, but seem to appear in P5 XML."
+  {:p5/VariableType  #{"Category"}
+   :p5/View          #{}
+   :p5/DataType      #{"Category"}
+   :p5/Object        #{"Category"}
+   :p5/Method        #{"Category"}
+   :p5/Variable      #{}
+   :p5/ObjectType    #{"Category"}
+   :p5/ReferenceType #{}}) ; ToDo: this is not nearly complete.
+
+
+(def attr-status
+  "Same as above but with string values for the :mandatory and :optional sets."
+  (reduce-kv (fn [m k v]
+               (assoc m k (update-vals v #(->> % (map name) set))))
+             {}
+             attr-status-keys))
+
+
+
+(def node-class? #{:p5/DataType :p5/Method :p5/Object :p5/ObjectType :p5/ReferenceType :p5/Variable :p5/VariableType :p5/View})
+
+(def is-elem? #{:RolePermissions, :UserRolePermissions})
 
 (def part3-attr?
   "A set/predicate for the Part 3 attributes."
@@ -196,6 +225,8 @@
       (swap! res into (:optional v)))
     @res))
 
+;;; ToDo: This needs work! There are more attrs than just those in Table 17. Also, this is probably the place to assign correct namespaces.
+;;;       Decisions are made, in part, based on the element tag. Certainly ExtensionObject needs special processing.
 (defn process-part3-attrs
   [xmap]
   (reduce-kv (fn [m k v]
@@ -245,13 +276,36 @@
            (:xml/attrs result#) (-> (assoc :xml/attributes (-> result# :xml/attrs process-attrs-map))
                                     (dissoc :xml/attrs))))))
 
- '[#:xml{:tag :p5/UANodeSet,
-        :attrs {:LastModified "2021-05-20T00:00:00Z"},
-        :content
-        [#:xml{:tag :p5/Aliases,
+
+
+         #:xml{:tag :p5/UADataType,
+               :attrs {:NodeId "i=26", :BrowseName "Number", :IsAbstract "true"},
                :content
-               [#:xml{:tag :p5/Alias, :attrs {:Alias "Boolean"}, :content "i=1"}
-                #:xml{:tag :p5/Alias, :attrs {:Alias "HasDescription"}, :content "i=39"}]}]}]
+               [#:xml{:tag :p5/DisplayName, :content "Number"}
+                #:xml{:tag :p5/Category, :content "Base Info Base Types"}
+                #:xml{:tag :p5/Documentation, :content "https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.9"}
+                #:xml{:tag :p5/References,
+                      :content [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasSubtype", :IsForward "false"}, :content "i=24"}]}]}
+
+;;; A nice thing about node classes is that they don't contain other node-classes.
+(defn analyze-node-xml
+  "Return a map for a node, making attributes properties, checking for mandatory properties, and
+   setting the namespaces of everything to the proper UA concept."
+  [{:xml/keys [tag] :as xml}]
+  (assert (node-class? tag))\
+
+
+
+
+
+;;; ============================ Defparse ================================================
+;;; ToDo: xu/xml-group-by
+
+;;; ----------------- NodeSet -------------------------------------------------------------------------
+(defparse :p5/UANodeSet
+  [xmap]
+  (reset! diag xmap)
+  (->> xmap :xml/content (mapv rewrite-xml)))
 
 (defparse :p5/Alias
   [xmap]
@@ -264,27 +318,16 @@
   (log! :info (str "xmap =" xmap))
   (->> xmap :xml/content (mapv rewrite-xml)))
 
-;;; ToDo: xu/xml-group-by
-(defparse :p5/UANodeSet
+(defparse :p5/Model
   [xmap]
-  (->> xmap :xml/content (mapv rewrite-xml)))
+  :p5/Model)
 
-
-(defparse :p5/Reference
+(defparse :p5/Models
   [xmap]
-  (-> (process-part3-attrs xmap)
-      (assoc :Reference/id (:xml/content xmap))))
+  :p5/Models)
 
-(defparse :p5/UAVariable
-  [xmap]
-  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
-    (cond-> (process-part3-attrs xmap)
-      DisplayName  (assoc :UAVariable/DisplayName (->> DisplayName first :xml/content))
-      Description  (assoc :UAVariable/Description (->> Description first :xml/content))
-      References   (assoc :UAVariable/References  (->> References  first :xml/content (mapv rewrite-xml)))))) ; ToDo: Not sure about first here (and maybe above either)
-                                                                                                              ; Is xml-group-by doing what I want? (I think they have to be vectors).
-
-(defparse :p5/UAObject
+;;; ----------------- Node Classes -------------------------------------------------------------------------
+(defparse :p5/UADataType
   [xmap]
   (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
     (cond-> (process-part3-attrs xmap)
@@ -300,6 +343,79 @@
       Description  (assoc :UAMethod/Description (->> Description first :xml/content))
       References   (assoc :UAMethod/References  (->> References  first :xml/content (mapv rewrite-xml))))))
 
+(defparse :p5/UAObject
+  [xmap]
+  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
+    (cond-> (process-part3-attrs xmap)
+      DisplayName  (assoc :UAObject/DisplayName (->> DisplayName first :xml/content))
+      Description  (assoc :UAObject/Description (->> Description first :xml/content))
+      References   (assoc :UAObject/References  (->> References  first :xml/content (mapv rewrite-xml))))))
+
+(defparse :p5/UAObjectType
+  [xmap]
+  :p5/UAObjectType)
+
+(defparse :p5/UAReferenceType
+  [xmap]
+  :p5/UAReferenceType)
+
+(defparse :p5/UAVariable
+  [xmap]
+  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
+    (cond-> (process-part3-attrs xmap)
+      DisplayName  (assoc :UAVariable/DisplayName (->> DisplayName first :xml/content))
+      Description  (assoc :UAVariable/Description (->> Description first :xml/content))
+      References   (assoc :UAVariable/References  (->> References  first :xml/content (mapv rewrite-xml)))))) ; ToDo: Not sure about first here (and maybe above either)
+                                                                                                              ; Is xml-group-by doing what I want? (I think they have to be vectors).
+(defparse :p5/UAVariableType
+  [xmap]
+  :p5/UAVariableType)
+
+;;; You will probably never see one of these.
+(defparse :p5/UAView
+  [xmap]
+  :p5/UAView-NYI)
+
+;;; -------------------------- Other ----------------------------------------------------------------
+(defn ref-type
+  [{:keys [ReferenceType IsForward]}]
+  (let [forward? (not= IsForward "false")]
+    (case ReferenceType
+      "HasSubtype"        (if forward? :ref/has-subtype          :ref/subtype-of) ; Of course, more of these!
+      "HasTypeDefinition" (if forward? :ref/has-type-definition  :ref/type-definition-of)
+      "HasProperty"       (if forward? :ref/has-property         :ref/property-of)
+      "Organizes"         (if forward? :ref/origanizes           :ref/of-organization))))
+
+;;; ToDo: You won't be able to merge these because you can have multiple with the same key. Maybe group-by.
+(defparse :p5/Reference
+  "Return a vector of two elements, the relationship keyword and the value, which is a string index."
+  [xmap]
+  [(-> xmap :xml/attrs ref-type) (:xml/content xmap)])
+
+
+;;; ------------------------- Content of node classes -----------------------------------------------
+(defparse :p5/Category      [xmap] (-> xmap :xml/content))
+(defparse :p5/DisplayName   [xmap] (-> xmap :xml/content)) ; ToDo: I don't think we can depend on it being a simple text string.
+(defparse :p5/Documentation [xmap] (-> xmap :xml/content)) ; ToDo: I don't think we can depend on it being a simple text string.
+(defparse :p5/References    [xmap] (->> xmap :xml/content (mapv #(rewrite-xml % :p5/Reference))))
+
+
+;;; --------------------------- Lists ---------------------------------------------------------------
+(defparse :uaTypes/ListOfExtensionObject
+  [xmap]
+  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/ExtensionObject))))
+
+(defparse :uaTypes/ListOfInt32
+  [xmap]
+  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/Int32))))
+
+(defparse :uaTypes/ListOfLocalizedText
+  [xmap]
+  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/LocalizedText))))
+
+(defparse :uaTypes/ListOfString
+  [xmap]
+  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/String))))
 
 
 ;;;-------------------- Start and stop
