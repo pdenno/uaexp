@@ -13,6 +13,8 @@
 ;;;       If you went this route, you'd still have to deal with aliases, and extensions, however.
 ;;;       So it might be neater to use defparse. You only need about a dozen methods.
 
+;;; ToDo: Add :Node/type <======================================================================================================================================================================
+
 (def debugging? (atom false))
 (def diag (atom false))
 
@@ -86,7 +88,7 @@
      :uaTypes/Body                  ; :UAExtObj
      :uaTypes/Boolean               ; types.xsd, simple
      :uaTypes/ByteString            ; types.xsd, simple string child element?
-     :p5/Category                   ; <Just Text, I've seen it in documentation, but can't find it now. Maybe keep in :p5/Category in DB.>
+     :p5/Category                   ; <Just Text, I've seen it in documentation, but can't find it now. I'm going to use :Node/category.
      :uaTypes/DataType              ; UA Attribute
      :uaTypes/DateTime              ; Types.xsd, simple
      :p5/Definition                 ; :UADataType/Definition <==================  Maybe UADefinition as a Namespace????
@@ -187,6 +189,13 @@
    :p5/ReferenceType {:mandatory #{:InverseName :IsAbstract :DisplayName :BrowseName :WriteMask :Symmetric :NodeClass :NodeId :UserWriteMask},
                       :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}}})
 
+(def attr-status
+  "Same as above but with string values for the :mandatory and :optional sets."
+  (reduce-kv (fn [m k v]
+               (assoc m k (update-vals v #(->> % (map name) set))))
+             {}
+             attr-status-keys))
+
 (def default-attr-vals
   {"ValueRank" 0
    "IsAbstract" false})
@@ -202,16 +211,6 @@
    :p5/Variable      #{}
    :p5/ObjectType    #{"Category"}
    :p5/ReferenceType #{}}) ; ToDo: this is not nearly complete.
-
-
-(def attr-status
-  "Same as above but with string values for the :mandatory and :optional sets."
-  (reduce-kv (fn [m k v]
-               (assoc m k (update-vals v #(->> % (map name) set))))
-             {}
-             attr-status-keys))
-
-
 
 (def node-class? #{:p5/DataType :p5/Method :p5/Object :p5/ObjectType :p5/ReferenceType :p5/Variable :p5/VariableType :p5/View})
 
@@ -237,7 +236,6 @@
                  (log! :warn (str "Unknown attribute " k))))
           {}
           (:xml/atrs xmap)))
-
 
 (defn rewrite-xml-dispatch
   [obj & [specified]]
@@ -267,7 +265,7 @@
 
 ;;; ToDo: I think it is pretty odd that we call process-attrs-map here, especially so because
 ;;;       sometimes specific attrs are mapped again, differently.
-(defmacro defparse [tag [arg _props] & body]
+#_(defmacro defparse [tag [arg _props] & body]
   `(defmethod rewrite-xml ~tag [~arg & ~'_]
      ;; Once *skip-doc-processing?* is true, it stays so through the dynamic scope of the where it was set.
      (when @debugging? (println "defparse tag = " ~tag))
@@ -276,27 +274,59 @@
            (:xml/attrs result#) (-> (assoc :xml/attributes (-> result# :xml/attrs process-attrs-map))
                                     (dissoc :xml/attrs))))))
 
+(defmacro defparse [tag & others]
+  (let [doc-string (when (and (-> others first string?)
+                              (-> others second vector?))
+                     (first others))
+        arg  (if doc-string (nth others 1) (first others))
+        body (if doc-string (nthrest others 2) (nthrest others 1))]
+  `(defmethod rewrite-xml ~tag [~@arg & ~'_]
+     ;; Once *skip-doc-processing?* is true, it stays so through the dynamic scope of the where it was set.
+     (when @debugging? (println "defparse tag = " ~tag))
+       (let [result# (do ~@body)]
+         (cond-> result#
+           (:xml/attrs result#) (-> (assoc :xml/attributes (-> result# :xml/attrs process-attrs-map))
+                                    (dissoc :xml/attrs)))))))
 
 
-         #:xml{:tag :p5/UADataType,
-               :attrs {:NodeId "i=26", :BrowseName "Number", :IsAbstract "true"},
-               :content
-               [#:xml{:tag :p5/DisplayName, :content "Number"}
-                #:xml{:tag :p5/Category, :content "Base Info Base Types"}
-                #:xml{:tag :p5/Documentation, :content "https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.9"}
-                #:xml{:tag :p5/References,
-                      :content [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasSubtype", :IsForward "false"}, :content "i=24"}]}]}
+(def ^:diag dt #:xml{:tag :p5/UADataType,
+                     :attrs {:NodeId "i=26", :BrowseName "Number", :IsAbstract "true"},
+                     :content
+                     [#:xml{:tag :p5/DisplayName, :content "Number"}
+                     ; #:xml{:tag :p5/UnknownTag, :content "Number"}
+                      #:xml{:tag :p5/Category, :content "Base Info Base Types"}
+                      #:xml{:tag :p5/Documentation, :content "https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.9"}
+                      #:xml{:tag :p5/References,
+                            :content [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasSubtype", :IsForward "false"}, :content "i=24"}]}]})
+
+(defn xml-attrs-as-content
+  "Make XML attrs content with p5-namespaced tags, checking to ensure no collisions."
+  [{:xml/keys [attrs content] :as xml}]
+  (let [attr-too? (->> attrs keys (map name) set)]
+    (when (some #(attr-too? %) (->> content (map :xml/tag) (map name)))
+      (throw (ex-info "Attribute/tag collision." {:attrs attr-too? :tags (map :xml/tag content)})))
+    (let [attrs (reduce-kv (fn [res k v] (conj res (-> {}
+                                                       (assoc :xml/tag (keyword "p5" (name k)))
+                                                       (assoc :xml/content v))))
+                           []
+                           attrs)]
+      (-> xml
+          (dissoc :xml/attrs)
+          (update :xml/content into attrs)))))
+
+#_(defn names-only
+  "Rewrite with qualified keywords values as strings. Doesn't touch keys."
+  [x]
+  (cond (map? x)     (reduce-kv (fn [m k v] (if (keyword? v) (assoc m k (name v)) (assoc m k (names-only v)))) {} x)
+        (vector? x)  (mapv names-only x)
+        :else        x))
 
 ;;; A nice thing about node classes is that they don't contain other node-classes.
 (defn analyze-node-xml
   "Return a map for a node, making attributes properties, checking for mandatory properties, and
    setting the namespaces of everything to the proper UA concept."
-  [{:xml/keys [tag] :as xml}]
-  (assert (node-class? tag))\
-
-
-
-
+  [{:xml/keys [tag] :as _xml}]
+  (assert (node-class? tag)))
 
 ;;; ============================ Defparse ================================================
 ;;; ToDo: xu/xml-group-by
@@ -309,13 +339,12 @@
 
 (defparse :p5/Alias
   [xmap]
-  (log! :info (str "xmap =" xmap))
   {:Alias/name (-> xmap :xml/attrs :Alias)
    :Alias/id (:xml/content xmap)})
 
 (defparse :p5/Aliases
+  "Docstring"
   [xmap]
-  (log! :info (str "xmap =" xmap))
   (->> xmap :xml/content (mapv rewrite-xml)))
 
 (defparse :p5/Model
@@ -327,77 +356,174 @@
   :p5/Models)
 
 ;;; ----------------- Node Classes -------------------------------------------------------------------------
+;;; ToDo: If these all do the same thing (still in devl) update the dispatcher...
+
 (defparse :p5/UADataType
+  "This just merges small pieces."
   [xmap]
-  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
-    (cond-> (process-part3-attrs xmap)
-      DisplayName  (assoc :UAObject/DisplayName (->> DisplayName first :xml/content))
-      Description  (assoc :UAObject/Description (->> Description first :xml/content))
-      References   (assoc :UAObject/References  (->> References  first :xml/content (mapv rewrite-xml))))))
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
 
 (defparse :p5/UAMethod
+  "This just merges small pieces."
   [xmap]
-  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
-    (cond-> (process-part3-attrs xmap)
-      DisplayName  (assoc :UAMethod/DisplayName (->> DisplayName first :xml/content))
-      Description  (assoc :UAMethod/Description (->> Description first :xml/content))
-      References   (assoc :UAMethod/References  (->> References  first :xml/content (mapv rewrite-xml))))))
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
 
 (defparse :p5/UAObject
   [xmap]
-  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
-    (cond-> (process-part3-attrs xmap)
-      DisplayName  (assoc :UAObject/DisplayName (->> DisplayName first :xml/content))
-      Description  (assoc :UAObject/Description (->> Description first :xml/content))
-      References   (assoc :UAObject/References  (->> References  first :xml/content (mapv rewrite-xml))))))
+  "This just merges small pieces."
+  [xmap]
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
 
 (defparse :p5/UAObjectType
   [xmap]
-  :p5/UAObjectType)
+  "This just merges small pieces."
+  [xmap]
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
 
 (defparse :p5/UAReferenceType
   [xmap]
-  :p5/UAReferenceType)
+  "This just merges small pieces."
+  [xmap]
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
 
 (defparse :p5/UAVariable
   [xmap]
-  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
-    (cond-> (process-part3-attrs xmap)
-      DisplayName  (assoc :UAVariable/DisplayName (->> DisplayName first :xml/content))
-      Description  (assoc :UAVariable/Description (->> Description first :xml/content))
-      References   (assoc :UAVariable/References  (->> References  first :xml/content (mapv rewrite-xml)))))) ; ToDo: Not sure about first here (and maybe above either)
-                                                                                                              ; Is xml-group-by doing what I want? (I think they have to be vectors).
+  "This just merges small pieces."
+  [xmap]
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
+
 (defparse :p5/UAVariableType
   [xmap]
-  :p5/UAVariableType)
-
-;;; You will probably never see one of these.
-(defparse :p5/UAView
+  "This just merges small pieces."
   [xmap]
-  :p5/UAView-NYI)
+  (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
+    (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
+
+(defparse :p5/UAView
+  "There are none of these in P5 (nor probably anywhere else!)."
+  [_xmap]
+  (throw (ex-info "UAView!" {})))
 
 ;;; -------------------------- Other ----------------------------------------------------------------
 (defn ref-type
   [{:keys [ReferenceType IsForward]}]
   (let [forward? (not= IsForward "false")]
-    (case ReferenceType
-      "HasSubtype"        (if forward? :ref/has-subtype          :ref/subtype-of) ; Of course, more of these!
-      "HasTypeDefinition" (if forward? :ref/has-type-definition  :ref/type-definition-of)
-      "HasProperty"       (if forward? :ref/has-property         :ref/property-of)
-      "Organizes"         (if forward? :ref/origanizes           :ref/of-organization))))
+    (let [result (case ReferenceType
+                   "FromState"           (if forward? :ref/from-state             :ref/to-state)      ; ToDo: Needs investigation.
+                   "HasComponent"        (if forward? :ref/has-component          :ref/component-of)
+                   "HasEffect"           (if forward? :ref/has-effect             :ref/effect-of)
+                   "HasModellingRule"    (if forward? :ref/has-modeling-rule      :ref/modeling-rule-of)
+                   "HasOrderedComponent" (if forward? :ref/has-ordered-component  :ref/ordered-component-of)
+                   "HasProperty"         (if forward? :ref/has-property           :ref/property-of)
+                   "HasSubtype"          (if forward? :ref/has-subtype            :ref/subtype-of) ; Of course, more of these!
+                   "HasTypeDefinition"   (if forward? :ref/has-type-definition    :ref/type-definition-of)
+                   "Organizes"           (if forward? :ref/origanizes             :ref/of-organization)
+                   "ToState"             (if forward? :ref/to-state               :ref/from-state)
+                   nil)]
+      (or result (log! :warn (str "No such type: " ReferenceType))))))
 
-;;; ToDo: You won't be able to merge these because you can have multiple with the same key. Maybe group-by.
+(defparse :p5/References
+  "Returns a map with one key :Node/reference
+   Value is a vector of 2-place vectors [<ref-name keyword> <index-string>].
+   Note use of :Node/references despite references not being attributes of a node class per Table 17."
+  [xmap]
+  {:Node/references (->> xmap :xml/content (mapv #(rewrite-xml % :p5/Reference)))})
+
 (defparse :p5/Reference
-  "Return a vector of two elements, the relationship keyword and the value, which is a string index."
+  "Returns a 2-place vectors [<ref-name keyword> <index-string>].
+   We don't use the usual single-entry maps because can have more than one ref of the same type."
   [xmap]
   [(-> xmap :xml/attrs ref-type) (:xml/content xmap)])
 
 
-;;; ------------------------- Content of node classes -----------------------------------------------
-(defparse :p5/Category      [xmap] (-> xmap :xml/content))
-(defparse :p5/DisplayName   [xmap] (-> xmap :xml/content)) ; ToDo: I don't think we can depend on it being a simple text string.
-(defparse :p5/Documentation [xmap] (-> xmap :xml/content)) ; ToDo: I don't think we can depend on it being a simple text string.
-(defparse :p5/References    [xmap] (->> xmap :xml/content (mapv #(rewrite-xml % :p5/Reference))))
+
+;;; ------------------------- Content of node classes (return maps to merge) -----------------------------------------------
+(defparse :p5/BrowseName    [{:xml/keys [content]}] {:Node/browse-name content})
+(defparse :p5/Category      [{:xml/keys [content]}] {:Node/category content})
+(defparse :p5/DisplayName   [{:xml/keys [content]}] {:Node/display-name content})   ; ToDo: I don't think we can depend on it being a simple text string.
+(defparse :p5/Documentation [{:xml/keys [content]}] {:Node/documentation content})  ; ToDo: I don't think we can depend on it being a simple text string.
+(defparse :p5/IsAbstract    [{:xml/keys [content]}] {:Node/id (if (= "false" content) false true)})
+(defparse :p5/NodeId        [{:xml/keys [content]}] {:Node/id content})
+
+;;; --------------------------- Definition ----------------------------------------------------------
+(def ddd  #:xml{:tag :p5/Definition,
+                :attrs {:Name "NamingRuleType"},
+                :content
+                [#:xml{:tag :p5/Field,
+                       :attrs {:Name "Mandatory", :Value "1"},
+                       :content [#:xml{:tag :p5/Description, :content "The BrowseName must appear in all instances of the type."}]}
+                 #:xml{:tag :p5/Field,
+                       :attrs {:Name "Optional", :Value "2"},
+                       :content [#:xml{:tag :p5/Description, :content "The BrowseName may appear in an instance of the type."}]}
+                 #:xml{:tag :p5/Field,
+                       :attrs {:Name "Constraint", :Value "3"},
+                       :content
+                       [#:xml{:tag :p5/Description,
+                              :content
+                              "The modelling rule defines a constraint and the BrowseName is not used in an instance of the type."}]}]})
+
+#:xml{:tag :p5/Definition,
+      :content
+      [#:xml{:tag :p5/Field,
+             :attrs {:Name "Mandatory", :Value "1"},
+             :content [#:xml{:tag :p5/Description, :content "The BrowseName must appear in all instances of the type."}]}
+       #:xml{:tag :p5/Field,
+             :attrs {:Name "Optional", :Value "2"},
+             :content [#:xml{:tag :p5/Description, :content "The BrowseName may appear in an instance of the type."}]}
+       #:xml{:tag :p5/Field,
+             :attrs {:Name "Constraint", :Value "3"},
+             :content [#:xml{:tag :p5/Description, :content "The modelling rule defines a constraint and the BrowseName is not used in an instance of the type."}]}
+       #:xml{:tag :p5/Name, :content "NamingRuleType"}]}
+
+(defparse :p5/Definition ; ToDo: Investigate further.
+  "Definitions seem to have fields with values and descriptions. Everything here will be in NS def."
+  [xmap]
+  (let [content-map (->> xmap xml-attrs-as-content :xml/content (group-by :xml/tag))
+        fields (:p5/Field content-map)
+        dname  (:p5/Name content-map)]
+    (when-not (every? #({:p5/Name :p5/Field} %) (keys content-map))
+      (log! :warn (str "p5/Definition is irregular. Keys = " (keys content-map))))
+    (when-not (== 1 (-> content-map :p5/Name count))
+      (log! :warn (str "p5/Definition is irregular. Names = " (:p5/Name content-map))))
+    (cond-> {:def/name (rewrite-xml (first dname))}
+      fields (assoc :def/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
+
+(defparse :p5/Field
+  "Return a map with the keys in namespace 'field'.
+   Field typically has Description, Name, and Value." ; ToDo: Warn on irregularities.
+  [xmap]
+  (reduce (fn [r c] (assoc r (keyword "field" (-> c :xml/tag name)) (:xml/content c)))
+          {}
+          (-> xmap xml-attrs-as-content :xml/content)))
+
+;;; --------------------------- ExtensionObject --------------------------------------------------------------------------------------
+;;; I think the best thing to do here is to try to parse it and if it fails, store it as :UAExtObj/object-string (or some such thing).
+
+#:xml{:tag :uaTypes/ExtensionObject,
+                                    :content
+                                    [#:xml{:tag :uaTypes/TypeId, :content [#:xml{:tag :uaTypes/Identifier, :content "i=7616"}]}
+                                     #:xml{:tag :uaTypes/Body,
+                                           :content
+                                           [#:xml{:tag :uaTypes/EnumValueType,
+                                                  :content
+                                                  [#:xml{:tag :uaTypes/Value, :content "1"}
+                                                   #:xml{:tag :uaTypes/DisplayName,
+                                                         :content [#:xml{:tag :uaTypes/Text, :content "Mandatory"}]}
+                                                   #:xml{:tag :uaTypes/Description,
+                                                         :content
+                                                         [#:xml{:tag :uaTypes/Text,
+                                                                :content
+                                                                "The BrowseName must appear in all instances of the type."}]}]}]}]}
+(defparse :uaTypes/ExtensionObject
+  "Return an object network in the UAExtObj namespace." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
+  [xmap]
+  :ExtensionObject-nyi)
 
 
 ;;; --------------------------- Lists ---------------------------------------------------------------

@@ -1,0 +1,72 @@
+(ns develop.dutil
+  "Tools for repl-based exploration of RADmapper code"
+  (:require
+   [clojure.pprint :refer [pprint]]))
+
+(def alias? (atom (-> (ns-aliases *ns*) keys set)))
+
+(defn safe-alias
+  [al ns-sym]
+  (when (and (not (@alias? al))
+             (find-ns ns-sym))
+    (alias al ns-sym)))
+
+(defn ^:diag ns-setup!
+  "Use this to setup useful aliases for working in this NS."
+  []
+  (reset! alias? (-> (ns-aliases *ns*) keys set))
+  (safe-alias 'io     'clojure.java.io)
+  (safe-alias 's      'clojure.spec.alpha)
+  (safe-alias 'uni    'clojure.core.unify)
+  (safe-alias 'x      'clojure.data.xml)
+  (safe-alias 'edn    'clojure.edn)
+  (safe-alias 'io     'clojure.java.io)
+  (safe-alias 'str    'clojure.string)
+  (safe-alias 'dutil  'develop.dutil)
+  (safe-alias 'd      'datahike.api)
+  (safe-alias 'dp     'datahike.pull-api)
+  (safe-alias 'mount  'mount.core)
+  (safe-alias 'p      'promesa.core)
+  (safe-alias 'px     'promesa.exec)
+  (safe-alias 'core   'ua.core)
+  (safe-alias 'dbu    'ua.db-util)
+  (safe-alias 'xu     'ua.xml-utils))
+
+(defn clean-form
+  "Replace some namespaces with aliases"
+  [form]
+  (let [ns-alia {"clojure.spec.alpha"           "s"} ; More here
+        ns-alia (merge ns-alia (zipmap (vals ns-alia) (vals ns-alia)))] ; ToDo: Make it more general. (Maybe "java.lang" since j.l.Exception too.)
+    (letfn [(ni [form]
+              (let [m (meta form)]
+                (cond (vector? form) (-> (->> form (map ni) doall vec) (with-meta m)),
+                      (seq? form)    (-> (->> form (map ni) doall) (with-meta m)),
+                      (map? form)    (-> (reduce-kv (fn [m k v] (assoc m k (ni v))) {} form) (with-meta m)),
+                      (symbol? form) (-> (let [nsa (-> form namespace ns-alia)]
+                                           (if-let [[_ s] (re-matches #"([a-zA-Z0-9\-]+)__.*" (name form))]
+                                             (symbol nsa s)
+                                             (->> form name (symbol nsa))))
+                                         (with-meta m)),
+                      :else form)))]
+      (ni form))))
+
+(defn ^:diag nicer-sym
+  "Forms coming back from bi/processRM have symbols prefixed by clojure.core
+   and other namespaces. On the quoted form in testing, I'd rather not see this.
+   This takes away those namespace prefixes."
+  [form]
+  (clean-form form))
+
+(defn ^:diag nicer
+  "Show macroexpand-1 pretty-printed form sans package names.
+   Argument is a quoted form"
+  [form & {:keys [pprint?] :or {pprint? true}}]
+        (cond-> (-> form macroexpand-1 clean-form)
+          pprint? pprint))
+
+(defn ^:diag nicer-
+  "Show pretty-printed form sans package names.
+   Argument is a quoted form"
+  [form & {:keys [pprint?] :or {pprint? true}}]
+        (cond-> (-> form clean-form)
+          pprint? pprint))

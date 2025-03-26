@@ -31,7 +31,7 @@
  ;; https://github.com/clj-kondo/clj-kondo/blob/master/doc/config.md#lint-a-custom-macro-like-a-built-in-macro --- Use defn, not defmacro.
  :lint-as {;https://andersmurphy.com/2024/01/03/clojure-clj-kondo-datalog-linting.html
            applied-science.js-interop/defn           clojure.core/defn
-           ua.core/defparse                          clojure.core/defn
+           ua.core/defparse                          clojure.core/defmethod
            datahike.api/q                            datascript.core/q
            mount.core/defstate                       clj-kondo.lint-as/def-catch-all}}   ; Because the hook is not working!
 

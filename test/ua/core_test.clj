@@ -2,37 +2,10 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [ua.core        :as core :refer [rewrite-xml]]
+   [develop.dutil  :as dutil :refer [ns-setup!]]
    [ua.db-util     :as dbu]
    [jsonista.core  :as json]
    [ua.xml-util    :as xu :refer [read-xml]]))
-
-(def alias? (atom (-> (ns-aliases *ns*) keys set)))
-
-(defn safe-alias
-  [al ns-sym]
-  (when (and (not (@alias? al))
-             (find-ns ns-sym))
-    (alias al ns-sym)))
-
-(defn ^:diag ns-setup!
-  "Use this to setup useful aliases for working in this NS."
-  []
-  (reset! alias? (-> (ns-aliases *ns*) keys set))
-  (safe-alias 'io     'clojure.java.io)
-  (safe-alias 's      'clojure.spec.alpha)
-  (safe-alias 'uni    'clojure.core.unify)
-  (safe-alias 'x      'clojure.data.xml)
-  (safe-alias 'edn    'clojure.edn)
-  (safe-alias 'io     'clojure.java.io)
-  (safe-alias 'str    'clojure.string)
-  (safe-alias 'd      'datahike.api)
-  (safe-alias 'dp     'datahike.pull-api)
-  (safe-alias 'mount  'mount.core)
-  (safe-alias 'p      'promesa.core)
-  (safe-alias 'px     'promesa.exec)
-  (safe-alias 'core   'ua.core)
-  (safe-alias 'dbu    'ua.db-util)
-  (safe-alias 'xu     'ua.xml-utils))
 
 (def p5-tags (atom #{}))
 (def robot-tags (atom #{}))
@@ -199,6 +172,3 @@
 ;;;       The problem is the same UA concept can be serialized either way in some cases.
 (defn tryme []
   (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet))
-
-
-
