@@ -395,6 +395,7 @@
   [xmap]
   "This just merges small pieces."
   [xmap]
+  (reset! diag xmap)
   (let [{:xml/keys [content]} (xml-attrs-as-content xmap)]
     (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))
 
@@ -468,39 +469,34 @@
                               :content
                               "The modelling rule defines a constraint and the BrowseName is not used in an instance of the type."}]}]})
 
-#:xml{:tag :p5/Definition,
-      :content
-      [#:xml{:tag :p5/Field,
-             :attrs {:Name "Mandatory", :Value "1"},
-             :content [#:xml{:tag :p5/Description, :content "The BrowseName must appear in all instances of the type."}]}
-       #:xml{:tag :p5/Field,
-             :attrs {:Name "Optional", :Value "2"},
-             :content [#:xml{:tag :p5/Description, :content "The BrowseName may appear in an instance of the type."}]}
-       #:xml{:tag :p5/Field,
-             :attrs {:Name "Constraint", :Value "3"},
-             :content [#:xml{:tag :p5/Description, :content "The modelling rule defines a constraint and the BrowseName is not used in an instance of the type."}]}
-       #:xml{:tag :p5/Name, :content "NamingRuleType"}]}
 
 (defparse :p5/Definition ; ToDo: Investigate further.
   "Definitions seem to have fields with values and descriptions. Everything here will be in NS def."
   [xmap]
   (let [content-map (->> xmap xml-attrs-as-content :xml/content (group-by :xml/tag))
         fields (:p5/Field content-map)
-        dname  (:p5/Name content-map)]
-    (when-not (every? #({:p5/Name :p5/Field} %) (keys content-map))
+        names  (:p5/Name content-map)]
+    (when-not (every? #(#{:p5/Name :p5/Field} %) (keys content-map))
       (log! :warn (str "p5/Definition is irregular. Keys = " (keys content-map))))
     (when-not (== 1 (-> content-map :p5/Name count))
       (log! :warn (str "p5/Definition is irregular. Names = " (:p5/Name content-map))))
-    (cond-> {:def/name (rewrite-xml (first dname))}
-      fields (assoc :def/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
+    (cond-> {:Definition/name (rewrite-xml (first names))}
+      fields (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
 
 (defparse :p5/Field
-  "Return a map with the keys in namespace 'field'.
+  "Return a map with the keys in namespace 'field'. Used in :p5/Definition
    Field typically has Description, Name, and Value." ; ToDo: Warn on irregularities.
   [xmap]
   (reduce (fn [r c] (assoc r (keyword "field" (-> c :xml/tag name)) (:xml/content c)))
           {}
           (-> xmap xml-attrs-as-content :xml/content)))
+
+;;; --------------------------- Types assumed to be strings (and settting namespace) -------------------------------------------------
+(defparse :p5/AccessLevel "Assumed string" [{:xml/keys [content]}] (assert (string? content))  {:Node/access-level content})
+(defparse :p5/Description "Assumed string" [{:xml/keys [content]}] (assert (string? content))  {:Node/description content})
+(defparse :p5/Name          "Used in :p5/Definition." [{:xml/keys [content]}]  (assert (string? content)) {:Definition/name content})
+(defparse :p5/ParentNodeId  "Used in :p5/Definition." [{:xml/keys [content]}]  (assert (string? content)) {:Node/parent-node-id content})
+
 
 ;;; --------------------------- ExtensionObject --------------------------------------------------------------------------------------
 ;;; I think the best thing to do here is to try to parse it and if it fails, store it as :UAExtObj/object-string (or some such thing).
@@ -525,6 +521,23 @@
   [xmap]
   :ExtensionObject-nyi)
 
+#{:p5/EventNotifier
+  :p5/ValueRank
+  :p5/InverseName
+  :p5/ReleaseStatus
+  :p5/Symmetric
+  :p5/RolePermissions
+  :p5/ArrayDimensions
+  :p5/Description
+  :p5/Purpose
+  :p5/SymbolicName
+  :p5/Name
+  :p5/AccessLevel
+  :p5/Value
+  :p5/MethodDeclarationId
+  :p5/DataType
+  :p5/ParentNodeId
+  :p5/AccessRestrictions}
 
 ;;; --------------------------- Lists ---------------------------------------------------------------
 (defparse :uaTypes/ListOfExtensionObject
