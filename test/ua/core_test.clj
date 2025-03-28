@@ -1,7 +1,7 @@
 (ns ua.core-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [ua.core        :as core :refer [rewrite-xml]]
+   [ua.core        :as core]
    [develop.dutil  :as dutil :refer [ns-setup!]]
    [ua.db-util     :as dbu]
    [jsonista.core  :as json]
@@ -171,4 +171,5 @@
 ;;; ToDo: After I demonstrate the simplest parsing working, consider transforming everything to tagged elements.
 ;;;       The problem is the same UA concept can be serialized either way in some cases.
 (defn tryme []
+  (reset! core/parse-depth 0)
   (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet))

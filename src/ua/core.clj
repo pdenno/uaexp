@@ -2,6 +2,7 @@
   "Toplevel of uaexp."
   (:require
    [clojure.edn                 :as edn]
+   [clojure.instant             :as instant]
    [clojure.pprint              :refer [cl-format]]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
@@ -13,7 +14,7 @@
 ;;;       So it might be neater to use defparse. You only need about a dozen methods.
 ;;; ToDo: Start work on validation.
 
-(def debugging? (atom true))
+(def debugging? (atom false))
 (def diag (atom false))
 
 (def nyi (atom #{}))
@@ -24,44 +25,44 @@
   {:tags
    #{:p5/Alias                      ; defparse to :UAAlias/...
      :p5/Aliases                    ; defparse to :UANodeset/Aliases ... Everything that is not :UANodeSet/Aliases or :UANodeSet/Models is :UANodeset/content ???
-     :uaTypes/Argument              ; :UAExtObj
-     :uaTypes/ArrayDimensions       ; UA Attribute
-     :uaTypes/Body                  ; :UAExtObj
-     :uaTypes/Boolean               ; types.xsd, simple
-     :uaTypes/ByteString            ; types.xsd, simple string child element?
+     :UATypes/Argument              ; :UAExtObj
+     :UATypes/ArrayDimensions       ; UA Attribute
+     :UATypes/Body                  ; :UAExtObj
+     :UATypes/Boolean               ; types.xsd, simple
+     :UATypes/ByteString            ; types.xsd, simple string child element?
      :p5/Category                   ; <Just Text, I've seen it in documentation, but can't find it now. I'm going to use :Node/category.
-     :uaTypes/DataType              ; UA Attribute
-     :uaTypes/DateTime              ; Types.xsd, simple
+     :UATypes/DataType              ; UA Attribute
+     :UATypes/DateTime              ; Types.xsd, simple
      :p5/Definition                 ; :UADataType/Definition <==================  Maybe UADefinition as a Namespace????
-     :uaTypes/Description           ; UA Attribute
+     :UATypes/Description           ; UA Attribute
      :p5/Description                ; UA Attribute
-     :uaTypes/DisplayName           ; UA Attribute <==================== Should be :p5 Need to fix this <==============================
+     :UATypes/DisplayName           ; UA Attribute <==================== Should be :p5 Need to fix this <==============================
      :p5/DisplayName                ; UA Attribute
      :p5/Documentation              ; <Just Text, I've seen it in documentation, but can't find it now. Maybe keep in :p5/Documentation in DB.>
-     :uaTypes/EUInformation         ; :UAExtObj (for CEFACT stuff, at least)
-     :uaTypes/EnumValueType         ; :UAExtObj
-     :uaTypes/ExtensionObject       ; :UAExtObj
+     :UATypes/EUInformation         ; :UAExtObj (for CEFACT stuff, at least)
+     :UATypes/EnumValueType         ; :UAExtObj
+     :UATypes/ExtensionObject       ; :UAExtObj
      :p5/Field                      ; :UADataType/Definition <================== ?
-     :uaTypes/Identifier            ; :UAExtObj
-     :uaTypes/Int32                 ; Types.xsd
+     :UATypes/Identifier            ; :UAExtObj
+     :UATypes/Int32                 ; Types.xsd
      :p5/InverseName                ; UA Attribute
-     :uaTypes/ListOfExtensionObject ; <plural> Don't keep
-     :uaTypes/ListOfInt32           ; <plural> Don't keep
-     :uaTypes/ListOfLocalizedText   ; <plural> Don't keep
-     :uaTypes/ListOfString          ; <plural? Don't keep
-     :uaTypes/Locale                ; Types.xsd <================================== Need to check this.
-     :uaTypes/LocalizedText         ; Types.xsd, simple
+     :UATypes/ListOfExtensionObject ; <plural> Don't keep
+     :UATypes/ListOfInt32           ; <plural> Don't keep
+     :UATypes/ListOfLocalizedText   ; <plural> Don't keep
+     :UATypes/ListOfString          ; <plural? Don't keep
+     :UATypes/Locale                ; Types.xsd <================================== Need to check this.
+     :UATypes/LocalizedText         ; Types.xsd, simple
      :p5/Model                      ; defparse to :UANodeSet/Models
      :p5/Models                     ; defparse <plural> Don't keep.
-     :uaTypes/Name                  ; :UAExtObj
-     :uaTypes/NamespaceUri          ; ignore
+     :UATypes/Name                  ; :UAExtObj
+     :UATypes/NamespaceUri          ; ignore
      :p5/Reference                  ; <Reference!> Don't keep
      :p5/References                 ; <plural> :db/cardinality :db/many
      :p5/RolePermission             ; <Singular>
      :p5/RolePermissions            ; UA Attribute
-     :uaTypes/String                ; Types.xsd
-     :uaTypes/Text                  ; :UAExtObj <================================= Need to check this.
-     :uaTypes/TypeId                ; :UAExtObj
+     :UATypes/String                ; Types.xsd
+     :UATypes/Text                  ; :UAExtObj <================================= Need to check this.
+     :UATypes/TypeId                ; :UAExtObj
      :p5/UADataType                 ; NodeClass It's own defparse? Makes :UADataType/<attributes>
      :p5/UAMethod                   ; NodeClass
      :p5/UANodeSet                  ; defparse  Have a UANodeSet object in the DB. Container for all of P5 and likewise for profiles
@@ -70,11 +71,11 @@
      :p5/UAReferenceType            ; NodeClass
      :p5/UAVariable                 ; NodeClass
      :p5/UAVariableType             ; NodeClass
-     :uaTypes/UInt32                ; Types.xsd
-     :uaTypes/UnitId                ; :UAExtObj (Part of EUInformation)
-     :uaTypes/Value                 ; :UAExtObj  (or should I let it slide as a UA Attribute? Sometimes an XML attr.)
+     :UATypes/UInt32                ; Types.xsd
+     :UATypes/UnitId                ; :UAExtObj (Part of EUInformation)
+     :UATypes/Value                 ; :UAExtObj  (or should I let it slide as a UA Attribute? Sometimes an XML attr.)
      :p5/Value                      ; UA Attribute (sometimes an attr)
-     :uaTypes/ValueRank},           ; UA Attribute (sometimes an attr)
+     :UATypes/ValueRank},           ; UA Attribute (sometimes an attr)
 
    :attrs ;; Attributes with be kebob-case, including the UA Attributes. They will be in the namespace of the object in which they are used?
           ;; In fact, the only place camelCase will be used is in the namespace names: NodeSet, Alias, <Node Class>
@@ -202,12 +203,17 @@
         body (if doc-string (nthrest others 2) (nthrest others 1))]
   `(defmethod rewrite-xml ~tag [~@arg & ~'_]
      ;; Once *skip-doc-processing?* is true, it stays so through the dynamic scope of the where it was set.
+     (swap! parse-depth inc)
      (when @debugging?
        (println (cl-format nil "~A==> ~A" (util/nspaces (* 3 @parse-depth)) ~tag)))
      (let [result# (do ~@body)]
-       (cond-> result#
+       #_(cond-> result#
          (:xml/attrs result#) (-> (assoc :xml/attributes (-> result# :xml/attrs process-attrs-map))
-                                  (dissoc :xml/attrs)))))))
+                                  (dissoc :xml/attrs)))
+       (when @debugging?
+         (println (cl-format nil "~A<-- ~A" (util/nspaces (* 3 @parse-depth)) ~tag)))
+       (swap! parse-depth dec)
+       result#))))
 
 (defn xml-attrs-as-content
   "Make XML attrs content with p5-namespaced tags, checking to ensure no collisions."
@@ -323,22 +329,36 @@
   (throw (ex-info "UAView!" {})))
 
 ;;; -------------------------- Other ----------------------------------------------------------------
+;;; ToDo: Guessing at most inverse names.
 (defn ref-type
-  [{:keys [ReferenceType IsForward]}]
-  (let [forward? (not= IsForward "false")
-        result (case ReferenceType
-                 "FromState"           (if forward? :ref/from-state             :ref/to-state)      ; ToDo: Needs investigation.
-                 "HasComponent"        (if forward? :ref/has-component          :ref/component-of)
-                 "HasEffect"           (if forward? :ref/has-effect             :ref/effect-of)
-                 "HasModellingRule"    (if forward? :ref/has-modeling-rule      :ref/modeling-rule-of)
-                 "HasOrderedComponent" (if forward? :ref/has-ordered-component  :ref/ordered-component-of)
-                 "HasProperty"         (if forward? :ref/has-property           :ref/property-of)
-                 "HasSubtype"          (if forward? :ref/has-subtype            :ref/subtype-of) ; Of course, more of these!
-                 "HasTypeDefinition"   (if forward? :ref/has-type-definition    :ref/type-definition-of)
-                 "Organizes"           (if forward? :ref/origanizes             :ref/of-organization)
-                 "ToState"             (if forward? :ref/to-state               :ref/from-state)
-                 nil)]
-      (or result (log! :warn (str "No such type: " ReferenceType)))))
+  [{:keys [ReferenceType IsForward] :as xml-map}]
+  (let [forward? (not= IsForward "false")]
+    (when (and (not forward?)
+               (#{"AlwaysGeneratesEvent" "GeneratesEvent"} ReferenceType))
+      (throw (ex-info "Non-forward boolean relationship" {:xml-map xml-map})))
+    (let [result
+          (case ReferenceType
+            "AlwaysGeneratesEvent" :P5RefType/always-generates-event?
+            "FromState"            (if forward? :P5RefType/from-state             :P5RefType/to-state)      ; ToDo: Needs investigation.
+            "GeneratesEvent"       :P5RefType/generates-event?
+            "HasAlarmSuppressionGroup" (if forward? :P5RefType/has-alarm-suppression-group :P5RefType/is-alarm-suppression-group-of)
+            "HasCause"                 (if forward? :P5RefType/has-cause                   :P5RefType/is-cause-of)
+            "HasComponent"             (if forward? :P5RefType/has-component               :P5RefType/is-component-of)
+            "HasCondition"             (if forward? :P5RefType/has-condition               :P5RefType/is-condition-of)
+            "HasDescription"           (if forward? :P5RefType/has-description             :P5RefType/is-description-of)
+            "HasEffect"                (if forward? :P5RefType/has-effect                  :P5RefType/is-effect-of)
+            "HasEncoding"              (if forward? :P5RefType/has-encoding                :P5RefType/is-encoding-of)
+            "HasInterface"             (if forward? :P5RefType/has-interface               :P5RefType/is-interface-of)
+            "HasModellingRule"         (if forward? :P5RefType/has-modeling-rule           :P5RefType/is-modeling-rule-of)
+            "HasOrderedComponent"      (if forward? :P5RefType/has-ordered-component       :P5RefType/is-ordered-component-of)
+            "HasProperty"              (if forward? :P5RefType/has-property                :P5RefType/is-property-of)
+            "HasSubtype"               (if forward? :P5RefType/has-subtype                 :P5RefType/is-subtype-of) ; Of course, more of these!
+            "HasTrueSubState"          (if forward? :P5RefType/has-true-substate           :P5RefType/is-true-substate-of) ; checked
+            "HasTypeDefinition"        (if forward? :P5RefType/has-type-definition         :P5RefType/is-type-definition-of)
+            "Organizes"                (if forward? :P5RefType/origanizes                  :P5RefType/of-organization)
+            "ToState"                  (if forward? :P5RefType/to-state                    :P5RefType/from-transition) ; checked
+            nil)]
+      (or result (log! :warn (str "No such ReferenceType: " ReferenceType))))))
 
 (defparse :p5/References
   "Returns a map with one key :Node/reference
@@ -405,61 +425,62 @@
   content)
 ;;;---------------------------- Value (often an ExtensionObject, datetime, list of strings -------------------------------------------
 (defparse :p5/Value
-  "AFAICS, these have a single child and no attrs."
-  [{:xml/keys [content] :as _xmap}]
+  "Returns the map with one key, :Node/value.
+   AFAICS, these have a single child and no attrs."
+  [{:xml/keys [content attrs] :as _xmap}]
   (reset! diag _xmap)
-  (when-not (== 1 (count content))
-    (log! :warn "Expected single value for :p5/Value."))
-  (rewrite-xml (first content)))
+  (when (or (not= 1 (count content))
+            (not-empty attrs))
+    (log! :warn "p5/Value not as expected."))
+  {:Node/value (rewrite-xml (first content))})
 
-;;; --------------------------- ExtensionObject --------------------------------------------------------------------------------------
+;;; --------------------------- ExtensionObject and other UA types ------------------------------------------------------------------
 ;;; I think the best thing to do here is to try to parse it and if it fails, store it as :UAExtObj/object-string (or some such thing).
 (def ext-keys (atom #{}))
 
-(defparse :uaTypes/ExtensionObject
+(defparse :UATypes/ExtensionObject
   "Return an object network in the UAExtObj namespace." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
   [xmap]
   (letfn [(ekeys [obj] (cond (map? obj)     (doseq [[k v] obj] (swap! ext-keys conj k) (ekeys v))
                              (vector? obj)  (doseq [x obj] (ekeys x))))]
     (-> xmap xml-attrs-as-content ekeys))
-  {:hey! :extension-obj-nyi})
+  {:hey! :extension-obj-nyi}) ; <==================================================================
 
+;;; ToDo: Needs investigation. I'm not wrapping any of these. I'm not defining :UATypes/{String, DateTime, Boolean, Int32, etc.}
+;;;       At least :UATypes/LocalizedText can use a reader...when I see the right kind of example...;^)
+(defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string boolean))
+(defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
+(defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
+(defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
+(defparse :UATypes/String        "doc" [{:xml/keys [content]}]  content)
+(defparse :UATypes/Text          "doc" [{:xml/keys [content]}]  content)
 
-(def eee #:xml{:tag :uaTypes/ExtensionObject,
-               :content
-               [#:xml{:tag :uaTypes/TypeId, :content [#:xml{:tag :uaTypes/Identifier, :content "i=7616"}]}
-                #:xml{:tag :uaTypes/Body,
-                      :content
-                      [#:xml{:tag :uaTypes/EnumValueType,
-                             :content
-                             [#:xml{:tag :uaTypes/Value, :content "1"}
-                              #:xml{:tag :uaTypes/DisplayName,
-                                    :content [#:xml{:tag :uaTypes/Text, :content "Mandatory"}]}
-                              #:xml{:tag :uaTypes/Description,
-                                    :content
-                                    [#:xml{:tag :uaTypes/Text,
-                                           :content
-                                           "The BrowseName must appear in all instances of the type."}]}]}]}]})
+(defparse :UATypes/LocalizedText "doc" [{:xml/keys [content]}]
+  (when-not (and (== 1 (count content))
+                 (= :UATypes/Text (-> content first :xml/tag)))
+    (log! :warn (str "Unexpected Localized Text" content)))
+  (-> content first (rewrite-xml :UATypes/Text)))
+
 ;;; --------------------------- Lists ---------------------------------------------------------------
-(defparse :uaTypes/ListOfExtensionObject
+(defparse :UATypes/ListOfExtensionObject
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/ExtensionObject))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/ExtensionObject))))
 
-(defparse :uaTypes/ListOfInt32
+(defparse :UATypes/ListOfInt32
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/Int32))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/Int32))))
 
-(defparse :uaTypes/ListOfLocalizedText
+(defparse :UATypes/ListOfLocalizedText
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/LocalizedText))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/LocalizedText))))
 
-(defparse :uaTypes/ListOfString
+(defparse :UATypes/ListOfString
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/String))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/String))))
 
 ;;;-------------------- Start and stop
 (defn start-server [] :started)
