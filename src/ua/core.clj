@@ -377,21 +377,22 @@
 (defparse :p5/ValueRank           "doc" [{:xml/keys [content]}] {:Node/value-rank (edn/read-string content)})
 
 ;;; --------------------------- Definition ----------------------------------------------------------
+
 (defparse :p5/Definition ; ToDo: Investigate further.
   "Definitions seem to have fields with values and descriptions. Everything here will be in NS def."
   [xmap]
   (let [content-map (->> xmap xml-attrs-as-content :xml/content (group-by :xml/tag))
         fields (:p5/Field content-map)
-        dname  (:p5/Name content-map)]
-    (when-not (every? #({:p5/Name :p5/Field} %) (keys content-map))
+        names  (:p5/Name content-map)]
+    (when-not (every? #(#{:p5/Name :p5/Field} %) (keys content-map))
       (log! :warn (str "p5/Definition is irregular. Keys = " (keys content-map))))
     (when-not (== 1 (-> content-map :p5/Name count))
       (log! :warn (str "p5/Definition is irregular. Names = " (:p5/Name content-map))))
-    (cond-> {:def/name (rewrite-xml (first dname))}
-      fields (assoc :def/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
+    (cond-> {:Definition/name (rewrite-xml (first names))}
+      fields (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
 
 (defparse :p5/Field
-  "Return a map with the keys in namespace 'field'.
+  "Return a map with the keys in namespace 'field'. Used in :p5/Definition
    Field typically has Description, Name, and Value." ; ToDo: Warn on irregularities.
   [xmap]
   (reduce (fn [r c] (assoc r (keyword "field" (-> c :xml/tag name)) (:xml/content c)))
@@ -423,6 +424,7 @@
     (-> xmap xml-attrs-as-content ekeys))
   {:hey! :extension-obj-nyi})
 
+
 (def eee #:xml{:tag :uaTypes/ExtensionObject,
                :content
                [#:xml{:tag :uaTypes/TypeId, :content [#:xml{:tag :uaTypes/Identifier, :content "i=7616"}]}
@@ -438,7 +440,6 @@
                                     [#:xml{:tag :uaTypes/Text,
                                            :content
                                            "The BrowseName must appear in all instances of the type."}]}]}]}]})
-
 ;;; --------------------------- Lists ---------------------------------------------------------------
 (defparse :uaTypes/ListOfExtensionObject
   "Whether containers are required for any lists is not yet clear."
