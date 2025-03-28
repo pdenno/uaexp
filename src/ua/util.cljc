@@ -67,6 +67,11 @@
   (tel/remove-handler! :default/console)
   (tel/add-handler!    :default/console (tel/handler:console)))
 
+(defn nspaces
+  "Return a string of n spaces."
+  [n]
+  (reduce (fn [s _] (str s " ")) "" (range n)))
+
 ;;; -------------- Starting and stopping ----------------------
 (defn init-util []
   (config-log!))
