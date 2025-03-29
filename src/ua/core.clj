@@ -484,6 +484,94 @@
   [xmap]
   (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/String))))
 
+
+;;; --------------------------- Learn Schema ---------------------------------------------------------------
+(defn db-type-of
+  "Return a Datahike schema :db/valueType object for the argument"
+  [obj]
+  (cond (string? obj)  :db.type/string
+        (number? obj)  :db.type/number
+        (keyword? obj) :db.type/keyword
+        (map? obj)     :db.type/ref
+        (boolean? obj) :db.type/boolean))
+
+(defn sample-vec
+  "Run db-type-of on just some of the data in vec."
+  [vec k & {:keys [sample-threshold sample-size]
+             :or {sample-threshold 200 sample-size 100}}]
+  (let [len (count vec)
+        vec (if (< len sample-threshold)
+               vec ; ToDo: repeatedly solution less than ideal.
+               (repeatedly sample-size #(nth vec (rand-int len))))
+        result (-> (map db-type-of vec) set)]
+    (if (> (count result) 1)
+      (throw (ex-info "Heterogeneous types:"
+                      {:types result :attribute k :vector vec}))
+      (first result))))
+
+;;; ToDo: Pull out all the :redex/ stuff.
+(defn schema-for-db
+  "Given a map indexed by DB idents with values (maps) containing some information about those
+   idents in a form consistent with the type argument of database (either :datascript or :datahike)
+   return a conforming schema for that database. To do this it just filters out the extraneous
+   key/value pairs of each value, and in the case of :datahike, returns a vector of maps where the
+   original keys are used to set :db/ident in each vector element (a map)."
+  [smap type]
+  (as-> smap ?schema ; Remove schema entries whose keys are not :db
+    (reduce-kv (fn [m k v]
+                 (let [new-v (reduce-kv (fn [m1 k1 v1] (if (= "db" (namespace k1)) (assoc m1 k1 v1) m1))
+                                        {}
+                                        v)]
+                   (assoc m k new-v)))
+               {}
+               ?schema)
+    (case type
+      :datahike ;; DH uses a vec and attr :db/ident.
+      (reduce-kv (fn [res k v] (conj res (assoc v :db/ident k))) [] ?schema)
+      :datascript ;; DS uses a map indexed by what would be :db/ident (like the input ?schema)
+      (reduce-kv (fn [schemas attr schema]
+                   (assoc schemas
+                          attr ; DS doesn't use :db/valueType except to distinguish refs.
+                          (reduce-kv (fn [m k v]
+                                       (if (and (= k :db/valueType) (not (= v :db.type/ref)))
+                                       m
+                                       (assoc m k v)))
+                                     {}
+                                     schema)))
+                 {}
+                 ?schema))))
+
+
+;;; (-> "data/part5/p5.edn" slurp edn/read-string core/learn-schema)
+(defn learn-schema
+  "Return DH/DS schema objects for the data provided.
+   Limitation: It can't learn from binding sets; the attributes of those are not the
+   data's attributes, and everything will appear as multiplicity 1."
+  [data & {:keys [known-schema datahike?] :or {known-schema {} datahike? true}}]
+  (let [learned (atom known-schema)]
+    (letfn [(update-learned! [k v]
+              (let [typ  (-> @learned k :db/valueType)
+                    card (-> @learned k :db/cardinality)
+                    vec? (vector? v)
+                    this-typ  (if vec? (sample-vec v k) (db-type-of v))
+                    this-card (if (or vec? (= card :db.cardinality/many)) ; permissive to many
+                                :db.cardinality/many
+                                :db.cardinality/one)]
+                (if (and typ (not= typ this-typ))
+                  (log! :warn (str "Different types: " k "first: " typ "second: " this-typ))
+                      (swap! learned #(-> %
+                                          (assoc-in [k :db/cardinality] this-card)
+                                          (assoc-in [k :db/valueType] this-typ))))))
+             (lsw-aux [obj]
+               (cond (map? obj) (doall (map (fn [[k v]]
+                                             (update-learned! k v)
+                                             (when (coll? v) (lsw-aux v)))
+                                           obj))
+                    (coll? obj) (doall (map lsw-aux obj))))]
+      (lsw-aux data)
+      (schema-for-db @learned (if datahike? :datahike :datascript)))))
+
+
 ;;;-------------------- Start and stop
 (defn start-server [] :started)
 
