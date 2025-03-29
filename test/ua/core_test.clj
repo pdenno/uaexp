@@ -1,12 +1,13 @@
 (ns ua.core-test
   (:require
-   [clojure.pprint :refer [pprint]]
-   [clojure.test :refer [deftest is testing]]
-   [ua.core        :as core]
-   [develop.dutil  :as dutil :refer [ns-setup!]]
-   [ua.db-util     :as dbu]
-   [jsonista.core  :as json]
-   [ua.xml-util    :as xu :refer [read-xml]]))
+   [clojure.data.xml   :as x]
+   [clojure.pprint     :refer [pprint]]
+   [clojure.test       :refer [deftest is testing]]
+   [ua.core            :as core]
+   [develop.dutil      :as dutil :refer [ns-setup!]]
+   [ua.db-util         :as dbu]
+   [jsonista.core      :as json]
+   [ua.xml-util        :as xu :refer [read-xml]]))
 
 (def p5-tags (atom #{}))
 (def robot-tags (atom #{}))
@@ -72,6 +73,9 @@
                {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
 
 (def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5") #_(update :xml/content no-tags)))
+
+;;; (->> (with-out-str (pprint x5)) (spit "data/part5/x5.edn"))
+
 
 ;;; (get-attrs (-> x5 :xml/content first :xml/content rest vec))
 (defn get-attrs
@@ -176,3 +180,27 @@
   (let [p5 (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet)
         s (with-out-str (pprint p5))]
     (spit "data/part5/p5.edn" s)))
+
+(defn string->stream
+  ([s] (string->stream s "UTF-8"))
+  ([s encoding]
+   (-> s
+       (.getBytes encoding)
+       (java.io.ByteArrayInputStream.))))
+
+
+(defn parse-small
+  "Wrap a string of XML in the namespace and try to parse it."
+  [s]
+  (let [small (str
+               "<UANodeSet xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" LastModified=\"2025-01-08T00:00:00Z\" xmlns=\"http://opcfoundation.org/UA/2011/03/UANodeSet.xsd\">\n"
+               s
+               "</UANodeSet>\n")
+        xml (-> small string->stream x/parse)]
+    {:xml/ns-info (xu/update-xml-namespaces (x/element-nss xml) {:root-name "p5"
+                                                                 :more-maps xu/more-maps})
+     :xml/content (-> xml
+                      (xu/alienate-xml {:root-name "p5"})
+                      xu/clean-whitespace
+                      xu/detagify
+                      vector)}))

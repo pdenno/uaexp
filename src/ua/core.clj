@@ -404,17 +404,10 @@
 ;;; --------------------------- Definition ----------------------------------------------------------
 (defparse :p5/Definition
   "Definitions seem to have fields with values and descriptions. Everything here will be in NS def."
-  [xmap]
-  (let [content-map (->> xmap xml-attrs-as-content :xml/content (group-by :xml/tag))
-        {:p5/keys [Fields Name SymbolicName IsOptionSet]} content-map]
-    (when-not (every? #(#{:p5/Name :p5/Field :p5/SymbolicName :p5/IsOptionSet} %) (keys content-map))
-      (log! :warn (str "p5/Definition is irregular. Keys = " (keys content-map))))
-    (when-not (== 1 (-> content-map :p5/Name count))
-      (log! :warn (str "p5/Definition is irregular. Names = " (:p5/Name content-map))))
-    (cond-> {:Definition/name (:xml/content Name)}
-      Fields         (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) Fields))
-      SymbolicName   (assoc :Definition/symbolic-name  (rewrite-xml SymbolicName :p5/SymbolicName))
-      IsOptionSet    (assoc :Definition/is-option-set? (rewrite-xml IsOptionSet :p5/SymbolicName)))))
+  [{:xml/keys [content attrs]}]
+  (let [dname (:Name attrs)]
+    (cond-> {:Definition/name dname}
+      (not-empty content) (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) content)))))
 
 (defparse :p5/Field
   "Return a map with the keys in namespace 'field'. Used in :p5/Definition
@@ -433,7 +426,6 @@
   "Returns the map with one key, :Node/value.
    AFAICS, these have a single child and no attrs."
   [{:xml/keys [content attrs] :as _xmap}]
-  (reset! diag _xmap)
   (when (or (not= 1 (count content))
             (not-empty attrs))
     (log! :warn "p5/Value not as expected."))
@@ -458,8 +450,8 @@
 (defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
 (defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
 (defparse :UATypes/Locale        "doc" [{:xml/keys [content]}]  content)
-(defparse :UATypes/String        "doc" [{:xml/keys [content]}]  content)
-(defparse :UATypes/Text          "doc" [{:xml/keys [content]}]  content)
+(defparse :UATypes/String        "doc" [{:xml/keys [content]}]  (if content content ""))
+(defparse :UATypes/Text          "doc" [{:xml/keys [content]}]  (if content content ""))
 (defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
 
 (defparse :UATypes/LocalizedText "doc" [{:xml/keys [content]}]

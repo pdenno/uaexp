@@ -147,9 +147,9 @@
     ;(reset! diag xml)
     {:xml/ns-info (update-xml-namespaces (x/element-nss xml) {:root-name root-name
                                                               :more-maps more-maps})
-      :xml/content (-> xml
-                       (alienate-xml {:root-name root-name})
-                       clean-whitespace
-                       detagify
-                       vector)
-      :schema_pathname pathname}))
+     :xml/content (-> xml
+                      (alienate-xml {:root-name root-name})
+                      clean-whitespace
+                      detagify
+                      vector)
+     :schema_pathname pathname}))
