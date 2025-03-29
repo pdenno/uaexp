@@ -338,26 +338,30 @@
       (throw (ex-info "Non-forward boolean relationship" {:xml-map xml-map})))
     (let [result
           (case ReferenceType
-            "AlwaysGeneratesEvent" :P5RefType/always-generates-event?
-            "FromState"            (if forward? :P5RefType/from-state             :P5RefType/to-state)      ; ToDo: Needs investigation.
-            "GeneratesEvent"       :P5RefType/generates-event?
-            "HasAlarmSuppressionGroup" (if forward? :P5RefType/has-alarm-suppression-group :P5RefType/is-alarm-suppression-group-of)
-            "HasCause"                 (if forward? :P5RefType/has-cause                   :P5RefType/is-cause-of)
-            "HasComponent"             (if forward? :P5RefType/has-component               :P5RefType/is-component-of)
-            "HasCondition"             (if forward? :P5RefType/has-condition               :P5RefType/is-condition-of)
-            "HasDescription"           (if forward? :P5RefType/has-description             :P5RefType/is-description-of)
-            "HasEffect"                (if forward? :P5RefType/has-effect                  :P5RefType/is-effect-of)
-            "HasEncoding"              (if forward? :P5RefType/has-encoding                :P5RefType/is-encoding-of)
-            "HasInterface"             (if forward? :P5RefType/has-interface               :P5RefType/is-interface-of)
-            "HasModellingRule"         (if forward? :P5RefType/has-modeling-rule           :P5RefType/is-modeling-rule-of)
-            "HasOrderedComponent"      (if forward? :P5RefType/has-ordered-component       :P5RefType/is-ordered-component-of)
-            "HasProperty"              (if forward? :P5RefType/has-property                :P5RefType/is-property-of)
-            "HasSubtype"               (if forward? :P5RefType/has-subtype                 :P5RefType/is-subtype-of) ; Of course, more of these!
-            "HasTrueSubState"          (if forward? :P5RefType/has-true-substate           :P5RefType/is-true-substate-of) ; checked
-            "HasTypeDefinition"        (if forward? :P5RefType/has-type-definition         :P5RefType/is-type-definition-of)
-            "Organizes"                (if forward? :P5RefType/origanizes                  :P5RefType/of-organization)
-            "ToState"                  (if forward? :P5RefType/to-state                    :P5RefType/from-transition) ; checked
-            nil)]
+            "AlarmGroupMember"            (if forward? :P5RefType/alarm-group-member             :P5RefType/member-of-alarm-group)
+            "AlarmSuppressionGroupMember" (if forward? :P5RefType/alarm-suppression-group-member :P5RefType/member-of-alarm-suppression-group)
+            "AlwaysGeneratesEvent"        :P5RefType/always-generates-event?
+            "FromState"                   (if forward? :P5RefType/from-state                     :P5RefType/to-state)      ; ToDo: Needs investigation.
+            "GeneratesEvent"              :P5RefType/generates-event?
+            "HasAlarmSuppressionGroup"    (if forward? :P5RefType/has-alarm-suppression-group    :P5RefType/is-alarm-suppression-group-of)
+            "HasCause"                    (if forward? :P5RefType/has-cause                      :P5RefType/is-cause-of)
+            "HasComponent"                (if forward? :P5RefType/has-component                  :P5RefType/is-component-of)
+            "HasCondition"                (if forward? :P5RefType/has-condition                  :P5RefType/is-condition-of)
+            "HasDescription"              (if forward? :P5RefType/has-description                :P5RefType/is-description-of)
+            "HasEffect"                   (if forward? :P5RefType/has-effect                     :P5RefType/is-effect-of)
+            "HasEncoding"                 (if forward? :P5RefType/has-encoding                   :P5RefType/is-encoding-of)
+            "HasInterface"                (if forward? :P5RefType/has-interface                  :P5RefType/is-interface-of)
+            "HasModellingRule"            (if forward? :P5RefType/has-modeling-rule              :P5RefType/is-modeling-rule-of)
+            "HasOrderedComponent"         (if forward? :P5RefType/has-ordered-component          :P5RefType/is-ordered-component-of)
+            "HasProperty"                 (if forward? :P5RefType/has-property                   :P5RefType/is-property-of)
+            "HasSubtype"                  (if forward? :P5RefType/has-subtype                    :P5RefType/is-subtype-of) ; Of course, more of these!
+            "HasTrueSubState"             (if forward? :P5RefType/has-true-substate              :P5RefType/is-true-substate-of) ; checked
+            "HasTypeDefinition"           (if forward? :P5RefType/has-type-definition            :P5RefType/is-type-definition-of)
+            "Organizes"                   (if forward? :P5RefType/origanizes                     :P5RefType/of-organization)
+            "ToState"                     (if forward? :P5RefType/to-state                       :P5RefType/from-transition) ; checked
+            nil)
+          result (or result (when (re-matches #"^i=\d+$" ReferenceType)
+                              {:!UAFwdRef/id ReferenceType}))]
       (or result (log! :warn (str "No such ReferenceType: " ReferenceType))))))
 
 (defparse :p5/References
@@ -386,6 +390,7 @@
 (defparse :p5/EventNotifier       "doc" [{:xml/keys [content]}] {:Node/event-notifier content}) ; ToDo: I don't think we can depend on it being a simple text string.
 (defparse :p5/InverseName         "doc" [{:xml/keys [content]}] {:Node/inverse-name content})
 (defparse :p5/IsAbstract          "doc" [{:xml/keys [content]}] {:Node/is-abtract? (if (= "false" content) false true)})
+(defparse :p5/IsOptionSet         "doc" [{:xml/keys [content]}] {:Node/is-option-set? (if (= "false" content) false true)})
 (defparse :p5/MethodDeclarationId "doc" [{:xml/keys [content]}] {:Node/method-declaration-id content})
 (defparse :p5/NodeId              "doc" [{:xml/keys [content]}] {:Node/id content})
 (defparse :p5/ParentNodeId        "doc" [{:xml/keys [content]}] {:Node/parent-node-id content}) ; Not in Table 17, but I'm putting it on the node.
@@ -397,19 +402,19 @@
 (defparse :p5/ValueRank           "doc" [{:xml/keys [content]}] {:Node/value-rank (edn/read-string content)})
 
 ;;; --------------------------- Definition ----------------------------------------------------------
-
-(defparse :p5/Definition ; ToDo: Investigate further.
+(defparse :p5/Definition
   "Definitions seem to have fields with values and descriptions. Everything here will be in NS def."
   [xmap]
   (let [content-map (->> xmap xml-attrs-as-content :xml/content (group-by :xml/tag))
-        fields (:p5/Field content-map)
-        names  (:p5/Name content-map)]
-    (when-not (every? #(#{:p5/Name :p5/Field} %) (keys content-map))
+        {:p5/keys [Fields Name SymbolicName IsOptionSet]} content-map]
+    (when-not (every? #(#{:p5/Name :p5/Field :p5/SymbolicName :p5/IsOptionSet} %) (keys content-map))
       (log! :warn (str "p5/Definition is irregular. Keys = " (keys content-map))))
     (when-not (== 1 (-> content-map :p5/Name count))
       (log! :warn (str "p5/Definition is irregular. Names = " (:p5/Name content-map))))
-    (cond-> {:Definition/name (rewrite-xml (first names))}
-      fields (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
+    (cond-> {:Definition/name (:xml/content Name)}
+      Fields         (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) Fields))
+      SymbolicName   (assoc :Definition/symbolic-name  (rewrite-xml SymbolicName :p5/SymbolicName))
+      IsOptionSet    (assoc :Definition/is-option-set? (rewrite-xml IsOptionSet :p5/SymbolicName)))))
 
 (defparse :p5/Field
   "Return a map with the keys in namespace 'field'. Used in :p5/Definition
@@ -449,17 +454,22 @@
 ;;; ToDo: Needs investigation. I'm not wrapping any of these. I'm not defining :UATypes/{String, DateTime, Boolean, Int32, etc.}
 ;;;       At least :UATypes/LocalizedText can use a reader...when I see the right kind of example...;^)
 (defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string boolean))
+(defparse :UATypes/ByteString    "doc" [{:xml/keys [content]}]  {:P6ByteString/str content})    ; ToDo Rethink these.
 (defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
 (defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
-(defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
+(defparse :UATypes/Locale        "doc" [{:xml/keys [content]}]  content)
 (defparse :UATypes/String        "doc" [{:xml/keys [content]}]  content)
 (defparse :UATypes/Text          "doc" [{:xml/keys [content]}]  content)
+(defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
 
 (defparse :UATypes/LocalizedText "doc" [{:xml/keys [content]}]
-  (when-not (and (== 1 (count content))
-                 (= :UATypes/Text (-> content first :xml/tag)))
-    (log! :warn (str "Unexpected Localized Text" content)))
-  (-> content first (rewrite-xml :UATypes/Text)))
+  (when-not (every?  #(#{:UATypes/Text :UATypes/Locale} %) (map :xml/tag content))
+    (log! :warn (str "Unexpected Localized Text" content))
+    (reset! diag content)
+    (throw (ex-info "" {})))
+  (let [{:UATypes/keys [Text Locale]} (group-by :xml/tag content)]
+    (cond-> {:P3LocalizedText/str (rewrite-xml Text :UATypes/Text)}
+      Locale (assoc :P3LocalizedText/Locale (rewrite-xml Locale :UATypes/Text)))))
 
 ;;; --------------------------- Lists ---------------------------------------------------------------
 (defparse :UATypes/ListOfExtensionObject

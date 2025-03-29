@@ -1,5 +1,6 @@
 (ns ua.core-test
   (:require
+   [clojure.pprint :refer [pprint]]
    [clojure.test :refer [deftest is testing]]
    [ua.core        :as core]
    [develop.dutil  :as dutil :refer [ns-setup!]]
@@ -172,4 +173,6 @@
 ;;;       The problem is the same UA concept can be serialized either way in some cases.
 (defn tryme []
   (reset! core/parse-depth 0)
-  (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet))
+  (let [p5 (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet)
+        s (with-out-str (pprint p5))]
+    (spit "data/part5/p5.edn" s)))
