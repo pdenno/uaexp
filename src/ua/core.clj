@@ -417,13 +417,14 @@
 (def ext-keys (atom #{}))
 
 (defparse :uaTypes/ExtensionObject
-  "Return an object network in the UAExtObj namespace." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
+  "Return an object network in the UAExtObj namespace.
+   Extension objects, of course, can have anything in them. I have in mind parsing them to nested map structures, stringified,
+   if they vary from what I've seen in Part 5 XML." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
   [xmap]
   (letfn [(ekeys [obj] (cond (map? obj)     (doseq [[k v] obj] (swap! ext-keys conj k) (ekeys v))
                              (vector? obj)  (doseq [x obj] (ekeys x))))]
     (-> xmap xml-attrs-as-content ekeys))
   {:hey! :extension-obj-nyi})
-
 
 (def eee #:xml{:tag :uaTypes/ExtensionObject,
                :content
