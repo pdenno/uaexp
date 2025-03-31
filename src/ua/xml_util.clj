@@ -4,7 +4,7 @@
    [clojure.java.io       :as io]
    [clojure.data.xml      :as x]
    [clojure.walk          :as walk]
-   [taoensso.telemere     :as log :refer [log!]]   ))
+   [taoensso.telemere     :as log :refer [log!]]))
 
 (def ^:diag diag (atom nil))
 
@@ -17,7 +17,6 @@
              #(if-let [k (tkey? (:xml/tag %))] (-> k name keyword) :other)
              (:xml/content xmap))
       (:xml/attrs xmap) (assoc :attrs (:xml/attrs xmap)))))
-
 
 (defn xpath-internal
   [content props path-in]
@@ -46,22 +45,6 @@
   "Like xpath but without warning on no content."
   [content & path-in]
   (xpath-internal content {} path-in))
-
-(defn xml-type?
-  "Return true if the content has :xml/tag = the argument."
-  [xml xtype]
-  (if (map? xtype)
-    (contains? xtype (:xml/tag xml))
-    (= (:xml/tag xml) xtype)))
-
-(defn child-types
-  "Return a map that has an entry collecting the instances of every child type found.
-   Argument is a vector of content."
-  [content]
-  (let [typs #{:xsd*/annotation :xsd*/any :xsd*/anyAttribute :xsd*/attribute :xsd*/complexContent :xsd*/complexType :xsd*/documentation
-               :xsd*/element :xsd*/group :xsd*/include :xsd*/restriction :xsd*/schema :xsd*/sequence :xsd*/simpleContent :xsd*/simpleType}
-        found (->> content (map :xml/tag) (reduce (fn [res tag] (if (typs tag) (conj res tag) res)) #{}))]
-    (reduce (fn [res tag] (assoc res tag (filterv #(xml-type? % tag) content))) {} found)))
 
 (defn clean-whitespace
   "Remove whitespace in element :content."
@@ -109,9 +92,9 @@
 (def more-maps
   "These are 'extra' aliases for OPC UA."
   {:p->u
-   {"uaTypes" "http://opcfoundation.org/UA/2008/02/Types.xsd"}
+   {"UATypes" "http://opcfoundation.org/UA/2008/02/Types.xsd"}
    :u->ps
-   {"http://opcfoundation.org/UA/2008/02/Types.xsd" ["uaTypes"]}})
+   {"http://opcfoundation.org/UA/2008/02/Types.xsd" ["UATypes"]}})
 
 ;;; ToDo: Currently this isn't looking for redefined aliases. It calls x/element-nss just once!
 ;;; (-> sample-ubl-message io/reader x/parse alienate-xml)
@@ -164,9 +147,9 @@
     ;(reset! diag xml)
     {:xml/ns-info (update-xml-namespaces (x/element-nss xml) {:root-name root-name
                                                               :more-maps more-maps})
-      :xml/content (-> xml
-                       (alienate-xml {:root-name root-name})
-                       clean-whitespace
-                       detagify
-                       vector)
-      :schema_pathname pathname}))
+     :xml/content (-> xml
+                      (alienate-xml {:root-name root-name})
+                      clean-whitespace
+                      detagify
+                      vector)
+     :schema_pathname pathname}))

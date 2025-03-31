@@ -2,6 +2,7 @@
   "Toplevel of uaexp."
   (:require
    [clojure.edn                 :as edn]
+   [clojure.instant             :as instant]
    [clojure.pprint              :refer [cl-format]]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
@@ -13,7 +14,7 @@
 ;;;       So it might be neater to use defparse. You only need about a dozen methods.
 ;;; ToDo: Start work on validation.
 
-(def debugging? (atom true))
+(def debugging? (atom false))
 (def diag (atom false))
 
 (def nyi (atom #{}))
@@ -24,44 +25,44 @@
   {:tags
    #{:p5/Alias                      ; defparse to :UAAlias/...
      :p5/Aliases                    ; defparse to :UANodeset/Aliases ... Everything that is not :UANodeSet/Aliases or :UANodeSet/Models is :UANodeset/content ???
-     :uaTypes/Argument              ; :UAExtObj
-     :uaTypes/ArrayDimensions       ; UA Attribute
-     :uaTypes/Body                  ; :UAExtObj
-     :uaTypes/Boolean               ; types.xsd, simple
-     :uaTypes/ByteString            ; types.xsd, simple string child element?
+     :UATypes/Argument              ; :UAExtObj
+     :UATypes/ArrayDimensions       ; UA Attribute
+     :UATypes/Body                  ; :UAExtObj
+     :UATypes/Boolean               ; types.xsd, simple
+     :UATypes/ByteString            ; types.xsd, simple string child element?
      :p5/Category                   ; <Just Text, I've seen it in documentation, but can't find it now. I'm going to use :Node/category.
-     :uaTypes/DataType              ; UA Attribute
-     :uaTypes/DateTime              ; Types.xsd, simple
+     :UATypes/DataType              ; UA Attribute
+     :UATypes/DateTime              ; Types.xsd, simple
      :p5/Definition                 ; :UADataType/Definition <==================  Maybe UADefinition as a Namespace????
-     :uaTypes/Description           ; UA Attribute
+     :UATypes/Description           ; UA Attribute
      :p5/Description                ; UA Attribute
-     :uaTypes/DisplayName           ; UA Attribute <==================== Should be :p5 Need to fix this <==============================
+     :UATypes/DisplayName           ; UA Attribute <==================== Should be :p5 Need to fix this <==============================
      :p5/DisplayName                ; UA Attribute
      :p5/Documentation              ; <Just Text, I've seen it in documentation, but can't find it now. Maybe keep in :p5/Documentation in DB.>
-     :uaTypes/EUInformation         ; :UAExtObj (for CEFACT stuff, at least)
-     :uaTypes/EnumValueType         ; :UAExtObj
-     :uaTypes/ExtensionObject       ; :UAExtObj
+     :UATypes/EUInformation         ; :UAExtObj (for CEFACT stuff, at least)
+     :UATypes/EnumValueType         ; :UAExtObj
+     :UATypes/ExtensionObject       ; :UAExtObj
      :p5/Field                      ; :UADataType/Definition <================== ?
-     :uaTypes/Identifier            ; :UAExtObj
-     :uaTypes/Int32                 ; Types.xsd
+     :UATypes/Identifier            ; :UAExtObj
+     :UATypes/Int32                 ; Types.xsd
      :p5/InverseName                ; UA Attribute
-     :uaTypes/ListOfExtensionObject ; <plural> Don't keep
-     :uaTypes/ListOfInt32           ; <plural> Don't keep
-     :uaTypes/ListOfLocalizedText   ; <plural> Don't keep
-     :uaTypes/ListOfString          ; <plural? Don't keep
-     :uaTypes/Locale                ; Types.xsd <================================== Need to check this.
-     :uaTypes/LocalizedText         ; Types.xsd, simple
+     :UATypes/ListOfExtensionObject ; <plural> Don't keep
+     :UATypes/ListOfInt32           ; <plural> Don't keep
+     :UATypes/ListOfLocalizedText   ; <plural> Don't keep
+     :UATypes/ListOfString          ; <plural? Don't keep
+     :UATypes/Locale                ; Types.xsd <================================== Need to check this.
+     :UATypes/LocalizedText         ; Types.xsd, simple
      :p5/Model                      ; defparse to :UANodeSet/Models
      :p5/Models                     ; defparse <plural> Don't keep.
-     :uaTypes/Name                  ; :UAExtObj
-     :uaTypes/NamespaceUri          ; ignore
+     :UATypes/Name                  ; :UAExtObj
+     :UATypes/NamespaceUri          ; ignore
      :p5/Reference                  ; <Reference!> Don't keep
      :p5/References                 ; <plural> :db/cardinality :db/many
      :p5/RolePermission             ; <Singular>
      :p5/RolePermissions            ; UA Attribute
-     :uaTypes/String                ; Types.xsd
-     :uaTypes/Text                  ; :UAExtObj <================================= Need to check this.
-     :uaTypes/TypeId                ; :UAExtObj
+     :UATypes/String                ; Types.xsd
+     :UATypes/Text                  ; :UAExtObj <================================= Need to check this.
+     :UATypes/TypeId                ; :UAExtObj
      :p5/UADataType                 ; NodeClass It's own defparse? Makes :UADataType/<attributes>
      :p5/UAMethod                   ; NodeClass
      :p5/UANodeSet                  ; defparse  Have a UANodeSet object in the DB. Container for all of P5 and likewise for profiles
@@ -70,11 +71,11 @@
      :p5/UAReferenceType            ; NodeClass
      :p5/UAVariable                 ; NodeClass
      :p5/UAVariableType             ; NodeClass
-     :uaTypes/UInt32                ; Types.xsd
-     :uaTypes/UnitId                ; :UAExtObj (Part of EUInformation)
-     :uaTypes/Value                 ; :UAExtObj  (or should I let it slide as a UA Attribute? Sometimes an XML attr.)
+     :UATypes/UInt32                ; Types.xsd
+     :UATypes/UnitId                ; :UAExtObj (Part of EUInformation)
+     :UATypes/Value                 ; :UAExtObj  (or should I let it slide as a UA Attribute? Sometimes an XML attr.)
      :p5/Value                      ; UA Attribute (sometimes an attr)
-     :uaTypes/ValueRank},           ; UA Attribute (sometimes an attr)
+     :UATypes/ValueRank},           ; UA Attribute (sometimes an attr)
 
    :attrs ;; Attributes with be kebob-case, including the UA Attributes. They will be in the namespace of the object in which they are used?
           ;; In fact, the only place camelCase will be used is in the namespace names: NodeSet, Alias, <Node Class>
@@ -202,12 +203,17 @@
         body (if doc-string (nthrest others 2) (nthrest others 1))]
   `(defmethod rewrite-xml ~tag [~@arg & ~'_]
      ;; Once *skip-doc-processing?* is true, it stays so through the dynamic scope of the where it was set.
+     (swap! parse-depth inc)
      (when @debugging?
        (println (cl-format nil "~A==> ~A" (util/nspaces (* 3 @parse-depth)) ~tag)))
      (let [result# (do ~@body)]
-       (cond-> result#
+       #_(cond-> result#
          (:xml/attrs result#) (-> (assoc :xml/attributes (-> result# :xml/attrs process-attrs-map))
-                                  (dissoc :xml/attrs)))))))
+                                  (dissoc :xml/attrs)))
+       (when @debugging?
+         (println (cl-format nil "~A<-- ~A" (util/nspaces (* 3 @parse-depth)) ~tag)))
+       (swap! parse-depth dec)
+       result#))))
 
 (defn xml-attrs-as-content
   "Make XML attrs content with p5-namespaced tags, checking to ensure no collisions."
@@ -323,22 +329,40 @@
   (throw (ex-info "UAView!" {})))
 
 ;;; -------------------------- Other ----------------------------------------------------------------
+;;; ToDo: Guessing at most inverse names.
 (defn ref-type
-  [{:keys [ReferenceType IsForward]}]
-  (let [forward? (not= IsForward "false")
-        result (case ReferenceType
-                 "FromState"           (if forward? :ref/from-state             :ref/to-state)      ; ToDo: Needs investigation.
-                 "HasComponent"        (if forward? :ref/has-component          :ref/component-of)
-                 "HasEffect"           (if forward? :ref/has-effect             :ref/effect-of)
-                 "HasModellingRule"    (if forward? :ref/has-modeling-rule      :ref/modeling-rule-of)
-                 "HasOrderedComponent" (if forward? :ref/has-ordered-component  :ref/ordered-component-of)
-                 "HasProperty"         (if forward? :ref/has-property           :ref/property-of)
-                 "HasSubtype"          (if forward? :ref/has-subtype            :ref/subtype-of) ; Of course, more of these!
-                 "HasTypeDefinition"   (if forward? :ref/has-type-definition    :ref/type-definition-of)
-                 "Organizes"           (if forward? :ref/origanizes             :ref/of-organization)
-                 "ToState"             (if forward? :ref/to-state               :ref/from-state)
-                 nil)]
-      (or result (log! :warn (str "No such type: " ReferenceType)))))
+  [{:keys [ReferenceType IsForward] :as xml-map}]
+  (let [forward? (not= IsForward "false")]
+    (when (and (not forward?)
+               (#{"AlwaysGeneratesEvent" "GeneratesEvent"} ReferenceType))
+      (throw (ex-info "Non-forward boolean relationship" {:xml-map xml-map})))
+    (let [result
+          (case ReferenceType
+            "AlarmGroupMember"            (if forward? :P5RefType/alarm-group-member             :P5RefType/member-of-alarm-group)
+            "AlarmSuppressionGroupMember" (if forward? :P5RefType/alarm-suppression-group-member :P5RefType/member-of-alarm-suppression-group)
+            "AlwaysGeneratesEvent"        :P5RefType/always-generates-event?
+            "FromState"                   (if forward? :P5RefType/from-state                     :P5RefType/to-state)      ; ToDo: Needs investigation.
+            "GeneratesEvent"              :P5RefType/generates-event?
+            "HasAlarmSuppressionGroup"    (if forward? :P5RefType/has-alarm-suppression-group    :P5RefType/is-alarm-suppression-group-of)
+            "HasCause"                    (if forward? :P5RefType/has-cause                      :P5RefType/is-cause-of)
+            "HasComponent"                (if forward? :P5RefType/has-component                  :P5RefType/is-component-of)
+            "HasCondition"                (if forward? :P5RefType/has-condition                  :P5RefType/is-condition-of)
+            "HasDescription"              (if forward? :P5RefType/has-description                :P5RefType/is-description-of)
+            "HasEffect"                   (if forward? :P5RefType/has-effect                     :P5RefType/is-effect-of)
+            "HasEncoding"                 (if forward? :P5RefType/has-encoding                   :P5RefType/is-encoding-of)
+            "HasInterface"                (if forward? :P5RefType/has-interface                  :P5RefType/is-interface-of)
+            "HasModellingRule"            (if forward? :P5RefType/has-modeling-rule              :P5RefType/is-modeling-rule-of)
+            "HasOrderedComponent"         (if forward? :P5RefType/has-ordered-component          :P5RefType/is-ordered-component-of)
+            "HasProperty"                 (if forward? :P5RefType/has-property                   :P5RefType/is-property-of)
+            "HasSubtype"                  (if forward? :P5RefType/has-subtype                    :P5RefType/is-subtype-of) ; Of course, more of these!
+            "HasTrueSubState"             (if forward? :P5RefType/has-true-substate              :P5RefType/is-true-substate-of) ; checked
+            "HasTypeDefinition"           (if forward? :P5RefType/has-type-definition            :P5RefType/is-type-definition-of)
+            "Organizes"                   (if forward? :P5RefType/origanizes                     :P5RefType/of-organization)
+            "ToState"                     (if forward? :P5RefType/to-state                       :P5RefType/from-transition) ; checked
+            nil)
+          result (or result (when (re-matches #"^i=\d+$" ReferenceType)
+                              {:!UAFwdRef/id ReferenceType}))]
+      (or result (log! :warn (str "No such ReferenceType: " ReferenceType))))))
 
 (defparse :p5/References
   "Returns a map with one key :Node/reference
@@ -366,6 +390,7 @@
 (defparse :p5/EventNotifier       "doc" [{:xml/keys [content]}] {:Node/event-notifier content}) ; ToDo: I don't think we can depend on it being a simple text string.
 (defparse :p5/InverseName         "doc" [{:xml/keys [content]}] {:Node/inverse-name content})
 (defparse :p5/IsAbstract          "doc" [{:xml/keys [content]}] {:Node/is-abtract? (if (= "false" content) false true)})
+(defparse :p5/IsOptionSet         "doc" [{:xml/keys [content]}] {:Node/is-option-set? (if (= "false" content) false true)})
 (defparse :p5/MethodDeclarationId "doc" [{:xml/keys [content]}] {:Node/method-declaration-id content})
 (defparse :p5/NodeId              "doc" [{:xml/keys [content]}] {:Node/id content})
 (defparse :p5/ParentNodeId        "doc" [{:xml/keys [content]}] {:Node/parent-node-id content}) ; Not in Table 17, but I'm putting it on the node.
@@ -377,19 +402,12 @@
 (defparse :p5/ValueRank           "doc" [{:xml/keys [content]}] {:Node/value-rank (edn/read-string content)})
 
 ;;; --------------------------- Definition ----------------------------------------------------------
-
-(defparse :p5/Definition ; ToDo: Investigate further.
+(defparse :p5/Definition
   "Definitions seem to have fields with values and descriptions. Everything here will be in NS def."
-  [xmap]
-  (let [content-map (->> xmap xml-attrs-as-content :xml/content (group-by :xml/tag))
-        fields (:p5/Field content-map)
-        names  (:p5/Name content-map)]
-    (when-not (every? #(#{:p5/Name :p5/Field} %) (keys content-map))
-      (log! :warn (str "p5/Definition is irregular. Keys = " (keys content-map))))
-    (when-not (== 1 (-> content-map :p5/Name count))
-      (log! :warn (str "p5/Definition is irregular. Names = " (:p5/Name content-map))))
-    (cond-> {:Definition/name (rewrite-xml (first names))}
-      fields (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) fields)))))
+  [{:xml/keys [content attrs]}]
+  (let [dname (:Name attrs)]
+    (cond-> {:Definition/name dname}
+      (not-empty content) (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) content)))))
 
 (defparse :p5/Field
   "Return a map with the keys in namespace 'field'. Used in :p5/Definition
@@ -405,14 +423,15 @@
   content)
 ;;;---------------------------- Value (often an ExtensionObject, datetime, list of strings -------------------------------------------
 (defparse :p5/Value
-  "AFAICS, these have a single child and no attrs."
-  [{:xml/keys [content] :as _xmap}]
-  (reset! diag _xmap)
-  (when-not (== 1 (count content))
-    (log! :warn "Expected single value for :p5/Value."))
-  (rewrite-xml (first content)))
+  "Returns the map with one key, :Node/value.
+   AFAICS, these have a single child and no attrs."
+  [{:xml/keys [content attrs] :as _xmap}]
+  (when (or (not= 1 (count content))
+            (not-empty attrs))
+    (log! :warn "p5/Value not as expected."))
+  {:Node/value (rewrite-xml (first content))})
 
-;;; --------------------------- ExtensionObject --------------------------------------------------------------------------------------
+;;; --------------------------- ExtensionObject and other UA types ------------------------------------------------------------------
 ;;; I think the best thing to do here is to try to parse it and if it fails, store it as :UAExtObj/object-string (or some such thing).
 (def ext-keys (atom #{}))
 
@@ -424,7 +443,8 @@
   (letfn [(ekeys [obj] (cond (map? obj)     (doseq [[k v] obj] (swap! ext-keys conj k) (ekeys v))
                              (vector? obj)  (doseq [x obj] (ekeys x))))]
     (-> xmap xml-attrs-as-content ekeys))
-  {:hey! :extension-obj-nyi})
+  {:hey! :extension-obj-nyi}) ; <==================================================================
+
 
 (def eee #:xml{:tag :uaTypes/ExtensionObject,
                :content
@@ -441,26 +461,135 @@
                                     [#:xml{:tag :uaTypes/Text,
                                            :content
                                            "The BrowseName must appear in all instances of the type."}]}]}]}]})
+
+;;; ToDo: Needs investigation. I'm not wrapping any of these. I'm not defining :UATypes/{String, DateTime, Boolean, Int32, etc.}
+;;;       At least :UATypes/LocalizedText can use a reader...when I see the right kind of example...;^)
+(defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string boolean))
+(defparse :UATypes/ByteString    "doc" [{:xml/keys [content]}]  {:P6ByteString/str content})    ; ToDo Rethink these.
+(defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
+(defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
+(defparse :UATypes/Locale        "doc" [{:xml/keys [content]}]  content)
+(defparse :UATypes/String        "doc" [{:xml/keys [content]}]  (if content content ""))
+(defparse :UATypes/Text          "doc" [{:xml/keys [content]}]  (if content content ""))
+(defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
+
+(defparse :UATypes/LocalizedText "doc" [{:xml/keys [content]}]
+  (when-not (every?  #(#{:UATypes/Text :UATypes/Locale} %) (map :xml/tag content))
+    (log! :warn (str "Unexpected Localized Text" content))
+    (reset! diag content)
+    (throw (ex-info "" {})))
+  (let [{:UATypes/keys [Text Locale]} (group-by :xml/tag content)]
+    (cond-> {:P3LocalizedText/str (rewrite-xml Text :UATypes/Text)}
+      Locale (assoc :P3LocalizedText/Locale (rewrite-xml Locale :UATypes/Text)))))
+
 ;;; --------------------------- Lists ---------------------------------------------------------------
-(defparse :uaTypes/ListOfExtensionObject
+(defparse :UATypes/ListOfExtensionObject
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/ExtensionObject))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/ExtensionObject))))
 
-(defparse :uaTypes/ListOfInt32
+(defparse :UATypes/ListOfInt32
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/Int32))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/Int32))))
 
-(defparse :uaTypes/ListOfLocalizedText
+(defparse :UATypes/ListOfLocalizedText
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/LocalizedText))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/LocalizedText))))
 
-(defparse :uaTypes/ListOfString
+(defparse :UATypes/ListOfString
   "Whether containers are required for any lists is not yet clear."
   [xmap]
-  (->> xmap :xml/content (mapv #(rewrite-xml % :uaTypes/String))))
+  (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/String))))
+
+
+;;; --------------------------- Learn Schema ---------------------------------------------------------------
+(defn db-type-of
+  "Return a Datahike schema :db/valueType object for the argument"
+  [obj]
+  (cond (string? obj)  :db.type/string
+        (number? obj)  :db.type/number
+        (keyword? obj) :db.type/keyword
+        (map? obj)     :db.type/ref
+        (boolean? obj) :db.type/boolean))
+
+(defn sample-vec
+  "Run db-type-of on just some of the data in vec."
+  [vec k & {:keys [sample-threshold sample-size]
+             :or {sample-threshold 200 sample-size 100}}]
+  (let [len (count vec)
+        vec (if (< len sample-threshold)
+               vec ; ToDo: repeatedly solution less than ideal.
+               (repeatedly sample-size #(nth vec (rand-int len))))
+        result (-> (map db-type-of vec) set)]
+    (if (> (count result) 1)
+      (throw (ex-info "Heterogeneous types:"
+                      {:types result :attribute k :vector vec}))
+      (first result))))
+
+;;; ToDo: Pull out all the :redex/ stuff.
+(defn schema-for-db
+  "Given a map indexed by DB idents with values (maps) containing some information about those
+   idents in a form consistent with the type argument of database (either :datascript or :datahike)
+   return a conforming schema for that database. To do this it just filters out the extraneous
+   key/value pairs of each value, and in the case of :datahike, returns a vector of maps where the
+   original keys are used to set :db/ident in each vector element (a map)."
+  [smap type]
+  (as-> smap ?schema ; Remove schema entries whose keys are not :db
+    (reduce-kv (fn [m k v]
+                 (let [new-v (reduce-kv (fn [m1 k1 v1] (if (= "db" (namespace k1)) (assoc m1 k1 v1) m1))
+                                        {}
+                                        v)]
+                   (assoc m k new-v)))
+               {}
+               ?schema)
+    (case type
+      :datahike ;; DH uses a vec and attr :db/ident.
+      (reduce-kv (fn [res k v] (conj res (assoc v :db/ident k))) [] ?schema)
+      :datascript ;; DS uses a map indexed by what would be :db/ident (like the input ?schema)
+      (reduce-kv (fn [schemas attr schema]
+                   (assoc schemas
+                          attr ; DS doesn't use :db/valueType except to distinguish refs.
+                          (reduce-kv (fn [m k v]
+                                       (if (and (= k :db/valueType) (not (= v :db.type/ref)))
+                                       m
+                                       (assoc m k v)))
+                                     {}
+                                     schema)))
+                 {}
+                 ?schema))))
+
+
+;;; (-> "data/part5/p5.edn" slurp edn/read-string core/learn-schema)
+(defn learn-schema
+  "Return DH/DS schema objects for the data provided.
+   Limitation: It can't learn from binding sets; the attributes of those are not the
+   data's attributes, and everything will appear as multiplicity 1."
+  [data & {:keys [known-schema datahike?] :or {known-schema {} datahike? true}}]
+  (let [learned (atom known-schema)]
+    (letfn [(update-learned! [k v]
+              (let [typ  (-> @learned k :db/valueType)
+                    card (-> @learned k :db/cardinality)
+                    vec? (vector? v)
+                    this-typ  (if vec? (sample-vec v k) (db-type-of v))
+                    this-card (if (or vec? (= card :db.cardinality/many)) ; permissive to many
+                                :db.cardinality/many
+                                :db.cardinality/one)]
+                (if (and typ (not= typ this-typ))
+                  (log! :warn (str "Different types: " k "first: " typ "second: " this-typ))
+                      (swap! learned #(-> %
+                                          (assoc-in [k :db/cardinality] this-card)
+                                          (assoc-in [k :db/valueType] this-typ))))))
+             (lsw-aux [obj]
+               (cond (map? obj) (doall (map (fn [[k v]]
+                                             (update-learned! k v)
+                                             (when (coll? v) (lsw-aux v)))
+                                           obj))
+                    (coll? obj) (doall (map lsw-aux obj))))]
+      (lsw-aux data)
+      (schema-for-db @learned (if datahike? :datahike :datascript)))))
+
 
 ;;;-------------------- Start and stop
 (defn start-server [] :started)
