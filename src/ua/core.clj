@@ -330,18 +330,22 @@
 
 ;;; -------------------------- Other ----------------------------------------------------------------
 ;;; ToDo: Guessing at most inverse names.
-(defn ref-type
-  [{:keys [ReferenceType IsForward] :as xml-map}]
-  (let [forward? (not= IsForward "false")]
+(defparse :p5/Reference
+  "Return a specific reference as a map with one key (the predicate) and one value.
+   Both the key and the value could be a {:IMPL/fwd-ref <i=num>} to be resolved later."
+  [xmap]
+  (let [{:xml/keys [attrs content]} xmap
+        {:keys [ReferenceType IsForward]} attrs
+        forward? (not= IsForward "false")]
     (when (and (not forward?)
                (#{"AlwaysGeneratesEvent" "GeneratesEvent"} ReferenceType))
-      (throw (ex-info "Non-forward boolean relationship" {:xml-map xml-map})))
-    (let [result
+      (throw (ex-info "Non-forward boolean relationship" {:xml-map xmap})))
+    (let [rtype
           (case ReferenceType
             "AlarmGroupMember"            (if forward? :P5RefType/alarm-group-member             :P5RefType/member-of-alarm-group)
             "AlarmSuppressionGroupMember" (if forward? :P5RefType/alarm-suppression-group-member :P5RefType/member-of-alarm-suppression-group)
             "AlwaysGeneratesEvent"        :P5RefType/always-generates-event?
-            "FromState"                   (if forward? :P5RefType/from-state                     :P5RefType/to-state)      ; ToDo: Needs investigation.
+            "FromState"                   (if forward? :P5RefType/from-state                     :P5RefType/to-state)
             "GeneratesEvent"              :P5RefType/generates-event?
             "HasAlarmSuppressionGroup"    (if forward? :P5RefType/has-alarm-suppression-group    :P5RefType/is-alarm-suppression-group-of)
             "HasCause"                    (if forward? :P5RefType/has-cause                      :P5RefType/is-cause-of)
@@ -354,15 +358,17 @@
             "HasModellingRule"            (if forward? :P5RefType/has-modeling-rule              :P5RefType/is-modeling-rule-of)
             "HasOrderedComponent"         (if forward? :P5RefType/has-ordered-component          :P5RefType/is-ordered-component-of)
             "HasProperty"                 (if forward? :P5RefType/has-property                   :P5RefType/is-property-of)
-            "HasSubtype"                  (if forward? :P5RefType/has-subtype                    :P5RefType/is-subtype-of) ; Of course, more of these!
+            "HasSubtype"                  (if forward? :P5RefType/has-subtype                    :P5RefType/is-subtype-of)
             "HasTrueSubState"             (if forward? :P5RefType/has-true-substate              :P5RefType/is-true-substate-of) ; checked
             "HasTypeDefinition"           (if forward? :P5RefType/has-type-definition            :P5RefType/is-type-definition-of)
             "Organizes"                   (if forward? :P5RefType/origanizes                     :P5RefType/of-organization)
             "ToState"                     (if forward? :P5RefType/to-state                       :P5RefType/from-transition) ; checked
             nil)
-          result (or result (when (re-matches #"^i=\d+$" ReferenceType)
-                              {:!UAFwdRef/id ReferenceType}))]
-      (or result (log! :warn (str "No such ReferenceType: " ReferenceType))))))
+          rtype (or rtype (re-matches #"^i=\d+$" ReferenceType))]
+      (when-not rtype (log! :warn (str "No such ReferenceType: " ReferenceType)))
+      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/fwd-ref rtype}   rtype)
+       (if (re-matches #"^i=\d+$" (str content)) {:IMPL/fwd-ref content} content)})))
+
 
 (defparse :p5/References
   "Returns a map with one key :Node/reference
@@ -371,11 +377,11 @@
   [xmap]
   {:Node/references (->> xmap :xml/content (mapv #(rewrite-xml % :p5/Reference)))})
 
-(defparse :p5/Reference
+#_(defparse :p5/Reference
   "Returns a 2-place vectors [<ref-name keyword> <index-string>].
    We don't use the usual single-entry maps because can have more than one ref of the same type."
   [xmap]
-  [(-> xmap :xml/attrs ref-type) (:xml/content xmap)])
+  {(-> xmap :xml/attrs ref-type) (:xml/content xmap)})
 
 ;;; ------------------------- Content of node classes except :p5/Value (return maps to merge) -------------------
 (defparse :p5/AccessLevel         "doc" [{:xml/keys [content]}] {:Node/access-level content})
@@ -421,21 +427,32 @@
   "AFAICS, this is only used in Definitions in UADataTypes"
   [{:xml/keys [content]}]
   content)
-;;;---------------------------- Value (often an ExtensionObject, datetime, list of strings -------------------------------------------
+
+;;;---------------------------- Value (often an ExtensionObject, datetime, list of strings, anything, really.  ------------------
 (defparse :p5/Value
   "Returns the map with one key, :Node/value.
-   AFAICS, these have a single child and no attrs."
+   AFAICS, these have a single child and no attrs. Value is boxed."
   [{:xml/keys [content attrs] :as _xmap}]
   (when (or (not= 1 (count content))
             (not-empty attrs))
     (log! :warn "p5/Value not as expected."))
-  {:Node/value (rewrite-xml (first content))})
+  (letfn [(box [v]
+            (cond (map? v)      {:box/ref v}
+                  (vector? v)   (mapv box v)
+                  (string? v)   {:box/string v}
+                  (number? v)   {:box/number v}
+                  (boolean? v)  {:box/boolean v}
+                  (inst? v)     {:box/date-time v}
+                  :else         (do (log! :warn (str "How do I box this?: " v))
+                                    (reset! diag v)
+                                    (throw (ex-info "box me" {:xmap _xmap})))))]
+    {:Node/value (-> content first rewrite-xml box)}))
 
 ;;; --------------------------- ExtensionObject and other UA types ------------------------------------------------------------------
 ;;; I think the best thing to do here is to try to parse it and if it fails, store it as :UAExtObj/object-string (or some such thing).
 (def ext-keys (atom #{}))
 
-(defparse :uaTypes/ExtensionObject
+(defparse :UATypes/ExtensionObject
   "Return an object network in the UAExtObj namespace.
    Extension objects, of course, can have anything in them. I have in mind parsing them to nested map structures, stringified,
    if they vary from what I've seen in Part 5 XML." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
@@ -443,28 +460,28 @@
   (letfn [(ekeys [obj] (cond (map? obj)     (doseq [[k v] obj] (swap! ext-keys conj k) (ekeys v))
                              (vector? obj)  (doseq [x obj] (ekeys x))))]
     (-> xmap xml-attrs-as-content ekeys))
-  {:hey! :extension-obj-nyi}) ; <==================================================================
+  {:UAExtObj/hey! :extension-obj-nyi}) ; <==================================================================
 
 
-(def eee #:xml{:tag :uaTypes/ExtensionObject,
+(def eee #:xml{:tag :UATypes/ExtensionObject,
                :content
-               [#:xml{:tag :uaTypes/TypeId, :content [#:xml{:tag :uaTypes/Identifier, :content "i=7616"}]}
-                #:xml{:tag :uaTypes/Body,
+               [#:xml{:tag :UATypes/TypeId, :content [#:xml{:tag :UATypes/Identifier, :content "i=7616"}]}
+                #:xml{:tag :UATypes/Body,
                       :content
-                      [#:xml{:tag :uaTypes/EnumValueType,
+                      [#:xml{:tag :UATypes/EnumValueType,
                              :content
-                             [#:xml{:tag :uaTypes/Value, :content "1"}
-                              #:xml{:tag :uaTypes/DisplayName,
-                                    :content [#:xml{:tag :uaTypes/Text, :content "Mandatory"}]}
-                              #:xml{:tag :uaTypes/Description,
+                             [#:xml{:tag :UATypes/Value, :content "1"}
+                              #:xml{:tag :UATypes/DisplayName,
+                                    :content [#:xml{:tag :UATypes/Text, :content "Mandatory"}]}
+                              #:xml{:tag :UATypes/Description,
                                     :content
-                                    [#:xml{:tag :uaTypes/Text,
+                                    [#:xml{:tag :UATypes/Text,
                                            :content
                                            "The BrowseName must appear in all instances of the type."}]}]}]}]})
 
 ;;; ToDo: Needs investigation. I'm not wrapping any of these. I'm not defining :UATypes/{String, DateTime, Boolean, Int32, etc.}
 ;;;       At least :UATypes/LocalizedText can use a reader...when I see the right kind of example...;^)
-(defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string boolean))
+(defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string #_boolean))
 (defparse :UATypes/ByteString    "doc" [{:xml/keys [content]}]  {:P6ByteString/str content})    ; ToDo Rethink these.
 (defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
 (defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
@@ -512,7 +529,9 @@
         (number? obj)  :db.type/number
         (keyword? obj) :db.type/keyword
         (map? obj)     :db.type/ref
-        (boolean? obj) :db.type/boolean))
+        (boolean? obj) :db.type/boolean
+        (inst? obj)    :db.type/instant
+        :else (log! :warn (str "Unknown type for schema: " obj))))
 
 (defn sample-vec
   "Run db-type-of on just some of the data in vec."
@@ -560,8 +579,7 @@
                  {}
                  ?schema))))
 
-
-;;; (-> "data/part5/p5.edn" slurp edn/read-string core/learn-schema)
+;;; (->> "data/part5/p5.edn" slurp edn/read-string core/learn-schema (sort-by :db/ident))
 (defn learn-schema
   "Return DH/DS schema objects for the data provided.
    Limitation: It can't learn from binding sets; the attributes of those are not the
@@ -577,7 +595,7 @@
                                 :db.cardinality/many
                                 :db.cardinality/one)]
                 (if (and typ (not= typ this-typ))
-                  (log! :warn (str "Different types: " k "first: " typ "second: " this-typ))
+                  (log! :warn (str "Different types: " k " first: " typ " second: " this-typ))
                       (swap! learned #(-> %
                                           (assoc-in [k :db/cardinality] this-card)
                                           (assoc-in [k :db/valueType] this-typ))))))
