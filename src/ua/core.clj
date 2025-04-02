@@ -4,15 +4,14 @@
    [clojure.edn                 :as edn]
    [clojure.instant             :as instant]
    [clojure.pprint              :refer [cl-format]]
+   [clojure.set                 :as sets]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.util                     :as util :refer [util-state]])) ; For mount
 
 ;;; ToDo: Most stuff in here belongs in a new file part5_db.clj.
-;;; ToDo: It is not essential to use defparse or even rewrite-xml. You can check for M/O attributes using attr-status.
-;;;       If you went this route, you'd still have to deal with aliases, and extensions, however.
-;;;       So it might be neater to use defparse. You only need about a dozen methods.
 ;;; ToDo: Start work on validation.
+;;; ToDo: Use the core_test node-by-id structure to define defparse :p5/Reference.
 
 (def debugging? (atom false))
 (def diag (atom false))
@@ -112,7 +111,7 @@
 
 ;;; ToDo: isForward, a common XML attribute, is not in this list. Why?
 (def attr-status-keys
-  "Mandatory and optional attributes of the 8 NodeClasses. This was created from Part 3 Clause 5.9 Table 7. (See https://reference.opcfoundation.org/Core/Part3/v104/docs/5.9)
+  "Mandatory and optional attributes of the 8 NodeClasses. This was created from Part 3 Clause 5.9 Table 7. (See https://reference.opcfoundation.org/Core/Part3/v105/docs/5.9)
    Note that attributes need not be encoded as XML attributes. The commented values are because things can default." ; ToDo: Not all defaults investigated; awaiting clojure specs.
   {:p5/VariableType  {:mandatory #{#_:ValueRank #_:IsAbstract :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
                       :optional #{:AccessRestrictions :RolePermissions :ArrayDimensions :Description :UserRolePermissions :ValueRank}},
@@ -142,7 +141,54 @@
   {"ValueRank" 0
    "IsAbstract" false})
 
-;;; ToDo: Study, for example, ObjectType https://reference.opcfoundation.org/Core/Part5/v104/docs/6
+(def p3-ref-types
+  "See https://reference.opcfoundation.org/Core/Part3/v105/docs/7.
+  DH schema will have to be generated for the ones the concrete ones."
+  [{:id :References
+    :is-abstract? true
+    :children #{:HierarchicalReferences :NonHierarchicalReferences}}
+   {:id :HierarchicalReferences
+    :is-abstract? true
+    :children #{:HasEventSource :HasChild :Organizes}}
+   {:id :NonHierarchicalReferences
+    :is-abstract? true
+    :children #{:GeneratesEvent :HasEncoding :HasModellingRule :HasTypeDefinition}}
+   {:id :HasEventSource
+    :children #{:HasNotifier}}
+   {:id :HasChild
+    :is-abstract? true
+    :children #{:Aggregates :HasSubtype}}
+   {:id :Organizes}
+
+   {:id :GeneratesEvent
+    :children #{:AlwaysGeneratesEvent}}
+   {:id :HasEncoding}
+   {:id :HasModellingRule}
+   {:id :HasTypeDefinition}
+   {:id :AlwaysGeneratesEvent}  ; This ends non-hierarchical.
+
+   {:id :HasNotifier}           ; Back to hierarchical.
+   {:id :Aggregates
+    :is-abstract? true
+    :children #{:HasProperty :HasComponent}}
+   {:id :HasProperty}
+   {:id :HasComponent
+    :children #{:HasOrderedComponent}}
+   {:id :HasOrderedComponent}
+
+   {:id :HasSubtype}])
+
+(def p3-ref-direct-supertype
+  (reduce (fn [r k] (assoc r k (some (fn [p] (when (and (contains? p :children)  ((:children p) k))
+                                               (:id p)))
+                                     p3-ref-types)))
+          {}
+          (map :id p3-ref-types)))
+
+(def abstract-p3-ref-type? (->> p3-ref-types (filter :is-abstract?) (map :id) (map name) set))
+(def concrete-p3-ref-type? (->> p3-ref-types (remove :is-abstract?) (map :id) (map name) set))
+
+;;; ToDo: Study, for example, ObjectType https://reference.opcfoundation.org/Core/Part5/v105/docs/6
 (def additional-properties
   "Properties for which I haven't yet studied the documentation, but seem to appear in P5 XML."
   {:p5/VariableType  #{"Category"}
@@ -156,6 +202,7 @@
 
 (def node-class? #{:p5/DataType :p5/Method :p5/Object :p5/ObjectType :p5/ReferenceType :p5/Variable :p5/VariableType :p5/View})
 
+;;; This one needs thought. Being in Table 17 of Part 3 doesn't seem to mean much.
 (def part3-attr?
   "A set/predicate for the Part 3 attributes."
   (let [res (atom #{})]
@@ -207,11 +254,8 @@
      (when @debugging?
        (println (cl-format nil "~A==> ~A" (util/nspaces (* 3 @parse-depth)) ~tag)))
      (let [result# (do ~@body)]
-       #_(cond-> result#
-         (:xml/attrs result#) (-> (assoc :xml/attributes (-> result# :xml/attrs process-attrs-map))
-                                  (dissoc :xml/attrs)))
        (when @debugging?
-         (println (cl-format nil "~A<-- ~A" (util/nspaces (* 3 @parse-depth)) ~tag)))
+         (println (cl-format nil "~A<-- ~A : ~A" (util/nspaces (* 3 @parse-depth)) ~tag (util/elide result# 130))))
        (swap! parse-depth dec)
        result#))))
 
@@ -332,7 +376,9 @@
 ;;; ToDo: Guessing at most inverse names.
 (defparse :p5/Reference
   "Return a specific reference as a map with one key (the predicate) and one value.
-   Both the key and the value could be a {:IMPL/fwd-ref <i=num>} to be resolved later."
+   Both the key and the value could be a {:IMPL/ref <i=num>} to be resolved later.
+   References Types are defined Part 5, https://reference.opcfoundation.org/Core/Part5/v105/docs/11
+   Some Reference Type have more basic in information in Part 3."
   [xmap]
   (let [{:xml/keys [attrs content]} xmap
         {:keys [ReferenceType IsForward]} attrs
@@ -341,7 +387,7 @@
                (#{"AlwaysGeneratesEvent" "GeneratesEvent"} ReferenceType))
       (throw (ex-info "Non-forward boolean relationship" {:xml-map xmap})))
     (let [rtype
-          (case ReferenceType
+          (case ReferenceType ; These are from both P3 and P5, discovered by trial an error (grep on x5.edn)
             "AlarmGroupMember"            (if forward? :P5RefType/alarm-group-member             :P5RefType/member-of-alarm-group)
             "AlarmSuppressionGroupMember" (if forward? :P5RefType/alarm-suppression-group-member :P5RefType/member-of-alarm-suppression-group)
             "AlwaysGeneratesEvent"        :P5RefType/always-generates-event?
@@ -366,9 +412,8 @@
             nil)
           rtype (or rtype (re-matches #"^i=\d+$" ReferenceType))]
       (when-not rtype (log! :warn (str "No such ReferenceType: " ReferenceType)))
-      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/fwd-ref rtype}   rtype)
-       (if (re-matches #"^i=\d+$" (str content)) {:IMPL/fwd-ref content} content)})))
-
+      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/ref rtype}   rtype)
+       (if (re-matches #"^i=\d+$" (str content)) {:IMPL/ref content} content)})))
 
 (defparse :p5/References
   "Returns a map with one key :Node/reference
@@ -385,7 +430,7 @@
 
 ;;; ------------------------- Content of node classes except :p5/Value (return maps to merge) -------------------
 (defparse :p5/AccessLevel         "doc" [{:xml/keys [content]}] {:Node/access-level content})
-(defparse :p5/AccessRestrictions  "doc" [{:xml/keys [content]}] {:Node/access-level-restictions content})
+(defparse :p5/AccessRestrictions  "doc" [{:xml/keys [content]}] {:Node/access-restictions content})
 (defparse :p5/ArrayDimensions     "doc" [{:xml/keys [content]}] {:Node/array-dimensions (edn/read-string content)})
 (defparse :p5/BrowseName          "doc" [{:xml/keys [content]}] {:Node/browse-name content})
 (defparse :p5/Category            "doc" [{:xml/keys [content]}] {:Node/category content})
@@ -402,10 +447,19 @@
 (defparse :p5/ParentNodeId        "doc" [{:xml/keys [content]}] {:Node/parent-node-id content}) ; Not in Table 17, but I'm putting it on the node.
 (defparse :p5/Purpose             "doc" [{:xml/keys [content]}] {:Node/purpose content}) ; This is only on UADataType AFAICS.
 (defparse :p5/ReleaseStatus       "doc" [{:xml/keys [content]}] {:Node/release-status content})
-(defparse :p5/RolePermissions     "doc" [{:xml/keys [content]}] {:Node/role-permissions content})
+(defparse :p5/RolePermissions     "doc" [{:xml/keys [content]}] {:Node/role-permissions (mapv rewrite-xml content)})
 (defparse :p5/SymbolicName        "doc" [{:xml/keys [content]}] {:Node/symbolic-name content}) ; This is only on UAObjectType AFAICS.
 (defparse :p5/Symmetric           "doc" [{:xml/keys [content]}] {:Node/symmetric? (if (= "false" content) false true)})
 (defparse :p5/ValueRank           "doc" [{:xml/keys [content]}] {:Node/value-rank (edn/read-string content)})
+
+;;; --------------------------- RolePermissions ----------------------------------------------------
+(defparse :p5/RolePermission
+  "Permissions get their own namespace"
+  [{:xml/keys [content attrs]}]
+  (assert (re-matches #"^i=\d+$" content)) ; ToDo: Only suitable for P5, I think.
+  (assert (= '(:Permissions) (keys attrs))) ; ToDo: Probably could regex match for valid permissions, \d+.
+  {:RolePerm/ref content
+   :RolePerm/permissions (:Permissions attrs)})
 
 ;;; --------------------------- Definition ----------------------------------------------------------
 (defparse :p5/Definition
@@ -415,18 +469,30 @@
     (cond-> {:Definition/name dname}
       (not-empty content) (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) content)))))
 
+;;; Actually a field thing???
+#_(defparse :p5/Name
+  "AFAICS, this is only used in Definitions in UADataTypes"
+  [{:xml/keys [content]}]
+  content)
+
 (defparse :p5/Field
   "Return a map with the keys in namespace 'field'. Used in :p5/Definition
    Field typically has Description, Name, and Value." ; ToDo: Warn on irregularities.
   [xmap]
-  (reduce (fn [r c] (assoc r (keyword "field" (-> c :xml/tag name)) (:xml/content c)))
+  (reduce (fn [r c] (merge r (rewrite-xml c)))
           {}
-          (-> xmap xml-attrs-as-content :xml/content)))
+          (->> xmap
+               xml-attrs-as-content
+               :xml/content
+               (map #(update % :xml/tag (fn [tag] (keyword "Field" (name tag))))))))
 
-(defparse :p5/Name
-  "AFAICS, this is only used in Definitions in UADataTypes"
-  [{:xml/keys [content]}]
-  content)
+
+(defparse :Field/AllowSubTypes "doc" [{:xml/keys [content]}] {:Field/allow-sub-types? (edn/read-string content)})
+(defparse :Field/DataType      "doc" [{:xml/keys [content]}] {:Field/data-type        content})
+(defparse :Field/Description   "doc" [{:xml/keys [content]}] {:Field/description      content})
+(defparse :Field/Name          "doc" [{:xml/keys [content]}] {:Field/name             content})
+(defparse :Field/Value         "doc" [{:xml/keys [content]}] {:Field/value            content})
+(defparse :Field/ValueRank     "doc" [{:xml/keys [content]}] {:Field/value-rank       content})
 
 ;;;---------------------------- Value (often an ExtensionObject, datetime, list of strings, anything, really.  ------------------
 (defparse :p5/Value
@@ -520,9 +586,10 @@
   [xmap]
   (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/String))))
 
-
 ;;; --------------------------- Learn Schema ---------------------------------------------------------------
-(defn db-type-of
+;;; Metadata marks these as ":admin" because they are used by developers, not in deployment.
+;;; Actual schema used in practice might be a manual modification of what is generated here.
+(defn ^:admin db-type-of
   "Return a Datahike schema :db/valueType object for the argument"
   [obj]
   (cond (string? obj)  :db.type/string
@@ -533,7 +600,7 @@
         (inst? obj)    :db.type/instant
         :else (log! :warn (str "Unknown type for schema: " obj))))
 
-(defn sample-vec
+(defn  ^:admin sample-vec
   "Run db-type-of on just some of the data in vec."
   [vec k & {:keys [sample-threshold sample-size]
              :or {sample-threshold 200 sample-size 100}}]
@@ -547,8 +614,7 @@
                       {:types result :attribute k :vector vec}))
       (first result))))
 
-;;; ToDo: Pull out all the :redex/ stuff.
-(defn schema-for-db
+(defn ^:admin schema-for-db
   "Given a map indexed by DB idents with values (maps) containing some information about those
    idents in a form consistent with the type argument of database (either :datascript or :datahike)
    return a conforming schema for that database. To do this it just filters out the extraneous
@@ -580,7 +646,7 @@
                  ?schema))))
 
 ;;; (->> "data/part5/p5.edn" slurp edn/read-string core/learn-schema (sort-by :db/ident))
-(defn learn-schema
+(defn ^:admin learn-schema-basic
   "Return DH/DS schema objects for the data provided.
    Limitation: It can't learn from binding sets; the attributes of those are not the
    data's attributes, and everything will appear as multiplicity 1."
@@ -596,11 +662,11 @@
                                 :db.cardinality/one)]
                 (if (and typ (not= typ this-typ))
                   (log! :warn (str "Different types: " k " first: " typ " second: " this-typ))
-                      (swap! learned #(-> %
-                                          (assoc-in [k :db/cardinality] this-card)
-                                          (assoc-in [k :db/valueType] this-typ))))))
-             (lsw-aux [obj]
-               (cond (map? obj) (doall (map (fn [[k v]]
+                  (swap! learned #(-> %
+                                      (assoc-in [k :db/cardinality] this-card)
+                                      (assoc-in [k :db/valueType] this-typ))))))
+            (lsw-aux [obj]
+              (cond (map? obj) (doall (map (fn [[k v]]
                                              (update-learned! k v)
                                              (when (coll? v) (lsw-aux v)))
                                            obj))
@@ -608,6 +674,40 @@
       (lsw-aux data)
       (schema-for-db @learned (if datahike? :datahike :datascript)))))
 
+(def ^:admin expected-ns
+  "These are keys returned by make-schema-info that are expected; schema is or can be specified for them."
+  #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5RefType" "P6ByteString" "RolePerm" "UAExtObj" "box" "Field"})
+
+(def p5-memo "Keep p5 so you don't have to slurp and read-string it." (atom nil))
+
+(defn make-p5-std-ref-type-schema ; <=================================================================================== NEXT
+  [_p5-edn]
+  {})
+
+(defn ^:admin make-schema-info
+  "This creates schema maps in a map indexed by the object type strings, for example, 'Node' and 'NodeSet, and 'P5RefType'.
+   Some of these can be used as is. Exceptions:
+    - P5RefType - is ignored because we want inverse relations too; for these we go back to the edn and do something different."
+  ([] (make-schema-info "data/part5/p5.edn"))
+  ([fname]
+   (let [schema-info (as-> fname ?d
+                       (slurp ?d)
+                       (edn/read-string ?d)
+                       (reset! p5-memo ?d) ; We'll use this below, but we keep it public for debugging.
+                       (learn-schema-basic ?d)
+                       (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
+                       (reduce-kv (fn [m k v]
+                                    (if (= k :other)
+                                      (assoc m k v)
+                                      (assoc m k (->> v (sort-by :db/ident) vec))))
+                                  {}
+                                  ?d)
+                       #_(dissoc ?d :other)      ; These SHOULD BE inside P5RefType...
+                       #_(dissoc ?d :P5RefType))  ; ... which, themselves, are not correctly processed by learn-schema-basic
+         bad-keys (sets/difference (-> schema-info keys set) expected-ns)]
+     (when (not-empty bad-keys)
+       (log! :warn (str "There are entity types that need investigation: " bad-keys)))
+     (merge schema-info (make-p5-std-ref-type-schema @p5-memo)))))
 
 ;;;-------------------- Start and stop
 (defn start-server [] :started)

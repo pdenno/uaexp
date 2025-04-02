@@ -21,7 +21,7 @@
            ;; https://clojure-lsp.io/settings/#clojure-lspunused-public-var
            :clojure-lsp/unused-public-var {:level :warning
                                            :exclude #{}
-                                           :exclude-when-contains-meta #{:diag}}} ; This works again [2024-05-18 Sat]
+                                           :exclude-when-contains-meta #{:diag :admin}}} ; This works again [2024-05-18 Sat]
 
 
  ;; Gist for defstate: https://gist.github.com/ethpran/e1741a5c408aec831b5e3a7e24f40fea

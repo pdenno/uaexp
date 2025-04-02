@@ -1,6 +1,7 @@
 (ns ua.core-test
   (:require
    [clojure.data.xml   :as x]
+   [clojure.edn        :as edn]
    [clojure.pprint     :refer [pprint]]
    [clojure.test       :refer [deftest is testing]]
    [ua.core            :as core]
@@ -73,6 +74,63 @@
                {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
 
 (def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5") #_(update :xml/content no-tags)))
+
+;;; I had to do this in parts!
+;;;(def p5 (-> "data/part5/p5.edn" slurp :edn/read-string))
+(def ref-types
+  "Ref types indexed by their Node/id."
+  (->> p5
+       :NodeSet/content
+       (filterv #(= (:Node/type %) :UAReferenceType))
+       #_(reduce (fn [m v] (assoc m (:Node/id v) v)) {})))
+
+(def node-by-id
+  (->> p5
+       :NodeSet/content
+       (filter #(contains? % :Node/id))
+       (reduce (fn [m v] (assoc m (:Node/id v) v)) {})))
+
+(def diag (atom nil))
+
+(def schema-info
+  "This is useful if only to see how messed up p5.edn is.
+   It helps to plan building schema. Some of which are okay right here."
+  (as-> "data/part5/p5.edn" ?d
+    (slurp ?d)
+    (edn/read-string ?d)
+    (core/learn-schema ?d)
+    (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
+    (reduce-kv (fn [m k v]
+                 (assoc m k (->> v
+                                 (sort (fn [x y]
+                                         (cond (and (-> x :db/ident keyword?)
+                                                    (-> y :db/ident keyword?))     (compare (:db/ident x) (:db/ident y))
+                                               (and (-> x :db/ident map?)
+                                                    (-> x :db/ident map?))         (compare (:IMPL/ref x) (:IMPL/ref y))
+                                               :else (reset! diag [x y]))))
+                                 vec)))
+               {}
+               ?d)))
+
+(def schema-info
+  "This is useful if only to see how messed up p5.edn is.
+   It helps to plan building schema. Some of which are okay right here."
+  (as-> "data/part5/p5.edn" ?d
+    (slurp ?d)
+    (edn/read-string ?d)
+    (core/learn-schema ?d)
+    (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
+    (reduce-kv (fn [m k v]
+                 (if (= k :other)
+                   (assoc m k v)
+                   (assoc m k (->> v (sort-by :db/ident) vec))))
+               {}
+               ?d)))
+
+
+
+
+
 
 ;;; (->> (with-out-str (pprint x5)) (spit "data/part5/x5.edn"))
 
