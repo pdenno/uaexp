@@ -15,6 +15,7 @@
   "Use this to setup useful aliases for working in this NS."
   []
   (reset! alias? (-> (ns-aliases *ns*) keys set))
+  (safe-alias 'csk    'camel-snake-kebab.core)
   (safe-alias 'io     'clojure.java.io)
   (safe-alias 's      'clojure.spec.alpha)
   (safe-alias 'uni    'clojure.core.unify)

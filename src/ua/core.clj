@@ -1,12 +1,14 @@
 (ns ua.core
   "Toplevel of uaexp."
   (:require
+   [camel-snake-kebab.core      :as csk]
    [clojure.edn                 :as edn]
    [clojure.instant             :as instant]
    [clojure.pprint              :refer [cl-format]]
    [clojure.set                 :as sets]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
+   [ua.p5-cardinality           :as p5-card]
    [ua.util                     :as util :refer [util-state]])) ; For mount
 
 ;;; ToDo: Most stuff in here belongs in a new file part5_db.clj.
@@ -18,102 +20,11 @@
 
 (def nyi (atom #{}))
 
-(def tags&attrs
-  "These are the tags and attributes found in Part 5 1.05.04. I use this to plan parsing.
-   There is no :p5 objects (namespaces) in the DB. There are instead, UANodeSet, UAAlias UA<some node class>, UAType, UAReference, UADefinition, and UAExtObj."
-  {:tags
-   #{:p5/Alias                      ; defparse to :UAAlias/...
-     :p5/Aliases                    ; defparse to :UANodeset/Aliases ... Everything that is not :UANodeSet/Aliases or :UANodeSet/Models is :UANodeset/content ???
-     :UATypes/Argument              ; :UAExtObj
-     :UATypes/ArrayDimensions       ; UA Attribute
-     :UATypes/Body                  ; :UAExtObj
-     :UATypes/Boolean               ; types.xsd, simple
-     :UATypes/ByteString            ; types.xsd, simple string child element?
-     :p5/Category                   ; <Just Text, I've seen it in documentation, but can't find it now. I'm going to use :Node/category.
-     :UATypes/DataType              ; UA Attribute
-     :UATypes/DateTime              ; Types.xsd, simple
-     :p5/Definition                 ; :UADataType/Definition <==================  Maybe UADefinition as a Namespace????
-     :UATypes/Description           ; UA Attribute
-     :p5/Description                ; UA Attribute
-     :UATypes/DisplayName           ; UA Attribute <==================== Should be :p5 Need to fix this <==============================
-     :p5/DisplayName                ; UA Attribute
-     :p5/Documentation              ; <Just Text, I've seen it in documentation, but can't find it now. Maybe keep in :p5/Documentation in DB.>
-     :UATypes/EUInformation         ; :UAExtObj (for CEFACT stuff, at least)
-     :UATypes/EnumValueType         ; :UAExtObj
-     :UATypes/ExtensionObject       ; :UAExtObj
-     :p5/Field                      ; :UADataType/Definition <================== ?
-     :UATypes/Identifier            ; :UAExtObj
-     :UATypes/Int32                 ; Types.xsd
-     :p5/InverseName                ; UA Attribute
-     :UATypes/ListOfExtensionObject ; <plural> Don't keep
-     :UATypes/ListOfInt32           ; <plural> Don't keep
-     :UATypes/ListOfLocalizedText   ; <plural> Don't keep
-     :UATypes/ListOfString          ; <plural? Don't keep
-     :UATypes/Locale                ; Types.xsd <================================== Need to check this.
-     :UATypes/LocalizedText         ; Types.xsd, simple
-     :p5/Model                      ; defparse to :UANodeSet/Models
-     :p5/Models                     ; defparse <plural> Don't keep.
-     :UATypes/Name                  ; :UAExtObj
-     :UATypes/NamespaceUri          ; ignore
-     :p5/Reference                  ; <Reference!> Don't keep
-     :p5/References                 ; <plural> :db/cardinality :db/many
-     :p5/RolePermission             ; <Singular>
-     :p5/RolePermissions            ; UA Attribute
-     :UATypes/String                ; Types.xsd
-     :UATypes/Text                  ; :UAExtObj <================================= Need to check this.
-     :UATypes/TypeId                ; :UAExtObj
-     :p5/UADataType                 ; NodeClass It's own defparse? Makes :UADataType/<attributes>
-     :p5/UAMethod                   ; NodeClass
-     :p5/UANodeSet                  ; defparse  Have a UANodeSet object in the DB. Container for all of P5 and likewise for profiles
-     :p5/UAObject                   ; NodeClass
-     :p5/UAObjectType               ; NodeClass
-     :p5/UAReferenceType            ; NodeClass
-     :p5/UAVariable                 ; NodeClass
-     :p5/UAVariableType             ; NodeClass
-     :UATypes/UInt32                ; Types.xsd
-     :UATypes/UnitId                ; :UAExtObj (Part of EUInformation)
-     :UATypes/Value                 ; :UAExtObj  (or should I let it slide as a UA Attribute? Sometimes an XML attr.)
-     :p5/Value                      ; UA Attribute (sometimes an attr)
-     :UATypes/ValueRank},           ; UA Attribute (sometimes an attr)
-
-   :attrs ;; Attributes with be kebob-case, including the UA Attributes. They will be in the namespace of the object in which they are used?
-          ;; In fact, the only place camelCase will be used is in the namespace names: NodeSet, Alias, <Node Class>
-   #{:AccessLevel          ; UA Attribute
-     :AccessLevelEx        ; UA Attribute, not found in Part 5 xml.
-     :AccessRestrictions   ; UA Attribute
-     :Alias                ; Found in the Alias element.
-     :AllowSubTypes        ; Found in UADataType Fields
-     :ArrayDimensions      ; UA Attribute
-     :BrowseName           ; UA Attribute
-     :DataType             ; UA Attribute
-     :EventNotifier        ; UA Attribute
-     :IsAbstract           ; UA Attribute
-     :IsForward            ; Found in References
-     :IsOptionSet          ; Found in Definitions
-     :LastModified         ; On UANodeSet
-     :MethodDeclarationId  ; Found in UAMethod
-     :ModelUri             ; On Model element
-     :ModelVersion         ; On Model element
-     :Name                 ; In Definitions, and their Fields (Call it UADefinition?)
-     :NodeId               ; UA Attribute
-     :ParentNodeId         ; In UAVariable
-     :Permissions          ; In UAVarible, its RolePermission objects
-     :PublicationDate      ; On Model element
-     :Purpose              ; On UADataType
-     :ReferenceType        ; On References
-     :ReleaseStatus        ; On any NodeClass. Translate to :Node/release-status (even though it is not a NodeClass attribute).
-     :SymbolicName         ; Used on UAObject, at least :UAObject/symbolic-name
-     :Symmetric            ; UA Attribute
-     :Value                ; UA Attribute
-     :ValueRank            ; UA Attribute
-     :Version              ; On Model element
-     :XmlSchemaUri}})      ; On Model element
-
 ;;; ToDo: isForward, a common XML attribute, is not in this list. Why?
 (def attr-status-keys
   "Mandatory and optional attributes of the 8 NodeClasses. This was created from Part 3 Clause 5.9 Table 7. (See https://reference.opcfoundation.org/Core/Part3/v105/docs/5.9)
    Note that attributes need not be encoded as XML attributes. The commented values are because things can default." ; ToDo: Not all defaults investigated; awaiting clojure specs.
-  {:p5/VariableType  {:mandatory #{#_:ValueRank #_:IsAbstract :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
+  {:p5/VariableType  {:mandatory #{:ValueRank :IsAbstract :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
                       :optional #{:AccessRestrictions :RolePermissions :ArrayDimensions :Description :UserRolePermissions :ValueRank}},
    :p5/View          {:mandatory #{:DisplayName :BrowseName :WriteMask :ContainsNoLoops :EventNotifier :NodeClass :NodeId :UserWriteMask},
                       :optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
@@ -141,64 +52,6 @@
   {"ValueRank" 0
    "IsAbstract" false})
 
-(def p3-ref-types
-  "See https://reference.opcfoundation.org/Core/Part3/v105/docs/7.
-  DH schema will have to be generated for the ones the concrete ones."
-  [{:id :References
-    :is-abstract? true
-    :children #{:HierarchicalReferences :NonHierarchicalReferences}}
-   {:id :HierarchicalReferences
-    :is-abstract? true
-    :children #{:HasEventSource :HasChild :Organizes}}
-   {:id :NonHierarchicalReferences
-    :is-abstract? true
-    :children #{:GeneratesEvent :HasEncoding :HasModellingRule :HasTypeDefinition}}
-   {:id :HasEventSource
-    :children #{:HasNotifier}}
-   {:id :HasChild
-    :is-abstract? true
-    :children #{:Aggregates :HasSubtype}}
-   {:id :Organizes}
-
-   {:id :GeneratesEvent
-    :children #{:AlwaysGeneratesEvent}}
-   {:id :HasEncoding}
-   {:id :HasModellingRule}
-   {:id :HasTypeDefinition}
-   {:id :AlwaysGeneratesEvent}  ; This ends non-hierarchical.
-
-   {:id :HasNotifier}           ; Back to hierarchical.
-   {:id :Aggregates
-    :is-abstract? true
-    :children #{:HasProperty :HasComponent}}
-   {:id :HasProperty}
-   {:id :HasComponent
-    :children #{:HasOrderedComponent}}
-   {:id :HasOrderedComponent}
-
-   {:id :HasSubtype}])
-
-(def p3-ref-direct-supertype
-  (reduce (fn [r k] (assoc r k (some (fn [p] (when (and (contains? p :children)  ((:children p) k))
-                                               (:id p)))
-                                     p3-ref-types)))
-          {}
-          (map :id p3-ref-types)))
-
-(def abstract-p3-ref-type? (->> p3-ref-types (filter :is-abstract?) (map :id) (map name) set))
-(def concrete-p3-ref-type? (->> p3-ref-types (remove :is-abstract?) (map :id) (map name) set))
-
-;;; ToDo: Study, for example, ObjectType https://reference.opcfoundation.org/Core/Part5/v105/docs/6
-(def additional-properties
-  "Properties for which I haven't yet studied the documentation, but seem to appear in P5 XML."
-  {:p5/VariableType  #{"Category"}
-   :p5/View          #{}
-   :p5/DataType      #{"Category"}
-   :p5/Object        #{"Category"}
-   :p5/Method        #{"Category"}
-   :p5/Variable      #{}
-   :p5/ObjectType    #{"Category"}
-   :p5/ReferenceType #{}}) ; ToDo: this is not nearly complete.
 
 (def node-class? #{:p5/DataType :p5/Method :p5/Object :p5/ObjectType :p5/ReferenceType :p5/Variable :p5/VariableType :p5/View})
 
@@ -233,10 +86,6 @@
   (log! :warn (str "No method using default = " (:xml/tag obj)))
   (swap! nyi conj (:xml/tag obj))
   nil)
-
-(defn process-attrs-map
-  [attrs-map]
-  (reduce-kv (fn [res k v] (-> res (conj (name k)) (conj (str v)))) [] attrs-map))
 
 (def parse-depth (atom 0))
 
@@ -273,13 +122,6 @@
       (-> xml
           (dissoc :xml/attrs)
           (update :xml/content into attrs)))))
-
-;;; A nice thing about node classes is that they don't contain other node-classes.
-(defn analyze-node-xml
-  "Return a map for a node, making attributes properties, checking for mandatory properties, and
-   setting the namespaces of everything to the proper UA concept."
-  [{:xml/keys [tag] :as _xml}]
-  (assert (node-class? tag)))
 
 ;;; ----------------- NodeSet -------------------------------------------------------------------------
 (defparse :p5/UANodeSet
@@ -373,47 +215,22 @@
   (throw (ex-info "UAView!" {})))
 
 ;;; -------------------------- Other ----------------------------------------------------------------
-;;; ToDo: Guessing at most inverse names.
 (defparse :p5/Reference
-  "Return a specific reference as a map with one key (the predicate) and one value.
+  "Return a reference instance as a map with one key (the predicate) and one value.
    Both the key and the value could be a {:IMPL/ref <i=num>} to be resolved later.
+   Typically, however, the key returned will be a keyworkd in the P5StdRefType
    References Types are defined Part 5, https://reference.opcfoundation.org/Core/Part5/v105/docs/11
    Some Reference Type have more basic in information in Part 3."
   [xmap]
   (let [{:xml/keys [attrs content]} xmap
         {:keys [ReferenceType IsForward]} attrs
-        forward? (not= IsForward "false")]
-    (when (and (not forward?)
-               (#{"AlwaysGeneratesEvent" "GeneratesEvent"} ReferenceType))
-      (throw (ex-info "Non-forward boolean relationship" {:xml-map xmap})))
-    (let [rtype
-          (case ReferenceType ; These are from both P3 and P5, discovered by trial an error (grep on x5.edn)
-            "AlarmGroupMember"            (if forward? :P5RefType/alarm-group-member             :P5RefType/member-of-alarm-group)
-            "AlarmSuppressionGroupMember" (if forward? :P5RefType/alarm-suppression-group-member :P5RefType/member-of-alarm-suppression-group)
-            "AlwaysGeneratesEvent"        :P5RefType/always-generates-event?
-            "FromState"                   (if forward? :P5RefType/from-state                     :P5RefType/to-state)
-            "GeneratesEvent"              :P5RefType/generates-event?
-            "HasAlarmSuppressionGroup"    (if forward? :P5RefType/has-alarm-suppression-group    :P5RefType/is-alarm-suppression-group-of)
-            "HasCause"                    (if forward? :P5RefType/has-cause                      :P5RefType/is-cause-of)
-            "HasComponent"                (if forward? :P5RefType/has-component                  :P5RefType/is-component-of)
-            "HasCondition"                (if forward? :P5RefType/has-condition                  :P5RefType/is-condition-of)
-            "HasDescription"              (if forward? :P5RefType/has-description                :P5RefType/is-description-of)
-            "HasEffect"                   (if forward? :P5RefType/has-effect                     :P5RefType/is-effect-of)
-            "HasEncoding"                 (if forward? :P5RefType/has-encoding                   :P5RefType/is-encoding-of)
-            "HasInterface"                (if forward? :P5RefType/has-interface                  :P5RefType/is-interface-of)
-            "HasModellingRule"            (if forward? :P5RefType/has-modeling-rule              :P5RefType/is-modeling-rule-of)
-            "HasOrderedComponent"         (if forward? :P5RefType/has-ordered-component          :P5RefType/is-ordered-component-of)
-            "HasProperty"                 (if forward? :P5RefType/has-property                   :P5RefType/is-property-of)
-            "HasSubtype"                  (if forward? :P5RefType/has-subtype                    :P5RefType/is-subtype-of)
-            "HasTrueSubState"             (if forward? :P5RefType/has-true-substate              :P5RefType/is-true-substate-of) ; checked
-            "HasTypeDefinition"           (if forward? :P5RefType/has-type-definition            :P5RefType/is-type-definition-of)
-            "Organizes"                   (if forward? :P5RefType/origanizes                     :P5RefType/of-organization)
-            "ToState"                     (if forward? :P5RefType/to-state                       :P5RefType/from-transition) ; checked
-            nil)
-          rtype (or rtype (re-matches #"^i=\d+$" ReferenceType))]
-      (when-not rtype (log! :warn (str "No such ReferenceType: " ReferenceType)))
-      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/ref rtype}   rtype)
-       (if (re-matches #"^i=\d+$" (str content)) {:IMPL/ref content} content)})))
+        forward? (not= IsForward "false")
+        rtype (or (p5-card/lookup-ref-type ReferenceType forward?)
+                  (re-matches #"^i=\d+$" (str ReferenceType)))]
+    (if rtype
+      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/ref rtype}   (keyword "P5StdRefType" (csk/->kebab-case rtype)))
+       (if (re-matches #"^i=\d+$" (str content)) {:IMPL/ref content} content)}
+      (throw (ex-info "No such ReferenceType: " {:xmap xmap})))))
 
 (defparse :p5/References
   "Returns a map with one key :Node/reference
@@ -421,12 +238,6 @@
    Note use of :Node/references despite references not being attributes of a node class per Table 17."
   [xmap]
   {:Node/references (->> xmap :xml/content (mapv #(rewrite-xml % :p5/Reference)))})
-
-#_(defparse :p5/Reference
-  "Returns a 2-place vectors [<ref-name keyword> <index-string>].
-   We don't use the usual single-entry maps because can have more than one ref of the same type."
-  [xmap]
-  {(-> xmap :xml/attrs ref-type) (:xml/content xmap)})
 
 ;;; ------------------------- Content of node classes except :p5/Value (return maps to merge) -------------------
 (defparse :p5/AccessLevel         "doc" [{:xml/keys [content]}] {:Node/access-level content})
@@ -440,7 +251,7 @@
 (defparse :p5/Documentation       "doc" [{:xml/keys [content]}] {:Node/documentation content})  ; ToDo: I don't think we can depend on it being a simple text string.
 (defparse :p5/EventNotifier       "doc" [{:xml/keys [content]}] {:Node/event-notifier content}) ; ToDo: I don't think we can depend on it being a simple text string.
 (defparse :p5/InverseName         "doc" [{:xml/keys [content]}] {:Node/inverse-name content})
-(defparse :p5/IsAbstract          "doc" [{:xml/keys [content]}] {:Node/is-abtract? (if (= "false" content) false true)})
+(defparse :p5/IsAbstract          "doc" [{:xml/keys [content]}] {:Node/is-abstract? (if (= "false" content) false true)})
 (defparse :p5/IsOptionSet         "doc" [{:xml/keys [content]}] {:Node/is-option-set? (if (= "false" content) false true)})
 (defparse :p5/MethodDeclarationId "doc" [{:xml/keys [content]}] {:Node/method-declaration-id content})
 (defparse :p5/NodeId              "doc" [{:xml/keys [content]}] {:Node/id content})
@@ -469,12 +280,6 @@
     (cond-> {:Definition/name dname}
       (not-empty content) (assoc :Definition/fields (mapv #(rewrite-xml % :p5/Field) content)))))
 
-;;; Actually a field thing???
-#_(defparse :p5/Name
-  "AFAICS, this is only used in Definitions in UADataTypes"
-  [{:xml/keys [content]}]
-  content)
-
 (defparse :p5/Field
   "Return a map with the keys in namespace 'field'. Used in :p5/Definition
    Field typically has Description, Name, and Value." ; ToDo: Warn on irregularities.
@@ -485,7 +290,6 @@
                xml-attrs-as-content
                :xml/content
                (map #(update % :xml/tag (fn [tag] (keyword "Field" (name tag))))))))
-
 
 (defparse :Field/AllowSubTypes "doc" [{:xml/keys [content]}] {:Field/allow-sub-types? (edn/read-string content)})
 (defparse :Field/DataType      "doc" [{:xml/keys [content]}] {:Field/data-type        content})
@@ -528,23 +332,6 @@
     (-> xmap xml-attrs-as-content ekeys))
   {:UAExtObj/hey! :extension-obj-nyi}) ; <==================================================================
 
-
-(def eee #:xml{:tag :UATypes/ExtensionObject,
-               :content
-               [#:xml{:tag :UATypes/TypeId, :content [#:xml{:tag :UATypes/Identifier, :content "i=7616"}]}
-                #:xml{:tag :UATypes/Body,
-                      :content
-                      [#:xml{:tag :UATypes/EnumValueType,
-                             :content
-                             [#:xml{:tag :UATypes/Value, :content "1"}
-                              #:xml{:tag :UATypes/DisplayName,
-                                    :content [#:xml{:tag :UATypes/Text, :content "Mandatory"}]}
-                              #:xml{:tag :UATypes/Description,
-                                    :content
-                                    [#:xml{:tag :UATypes/Text,
-                                           :content
-                                           "The BrowseName must appear in all instances of the type."}]}]}]}]})
-
 ;;; ToDo: Needs investigation. I'm not wrapping any of these. I'm not defining :UATypes/{String, DateTime, Boolean, Int32, etc.}
 ;;;       At least :UATypes/LocalizedText can use a reader...when I see the right kind of example...;^)
 (defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string #_boolean))
@@ -563,7 +350,7 @@
     (throw (ex-info "" {})))
   (let [{:UATypes/keys [Text Locale]} (group-by :xml/tag content)]
     (cond-> {:P3LocalizedText/str (rewrite-xml Text :UATypes/Text)}
-      Locale (assoc :P3LocalizedText/Locale (rewrite-xml Locale :UATypes/Text)))))
+      Locale (assoc :P3LocalizedText/locale (rewrite-xml Locale :UATypes/Text)))))
 
 ;;; --------------------------- Lists ---------------------------------------------------------------
 (defparse :UATypes/ListOfExtensionObject
@@ -678,11 +465,38 @@
   "These are keys returned by make-schema-info that are expected; schema is or can be specified for them."
   #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5RefType" "P6ByteString" "RolePerm" "UAExtObj" "box" "Field"})
 
-(def p5-memo "Keep p5 so you don't have to slurp and read-string it." (atom nil))
+(def p5-memo "Keep the Part 5 structure so you don't have to slurp and read-string it." (atom nil))
 
-(defn make-p5-std-ref-type-schema ; <=================================================================================== NEXT
-  [_p5-edn]
-  {})
+(defn make-p5-std-ref-type-schema
+  "Return a vector of DataHike schema for Part 5 ReferenceTypes (P5RefType) using the structure produced from Part 5 XML and the P5 cardinality table."
+  [p5]
+  (letfn [(ref2schema [{:Node/keys [browse-name category documentation id inverse-name is-abstract? release-status symmetric?]}]
+            (let [fwd-schema (cond-> {:db/ident (keyword "P5StdRefType" (csk/->kebab-case browse-name))
+                                      :db/valueType :db.type/ref
+                                      :db/cardinality (->  p5-card/card-table (get browse-name) :cardinality)
+                                      :uaexp/id id}
+                               documentation           (assoc :db/doc documentation)
+                               category                (assoc :uaexp/category category)
+                               is-abstract?            (assoc :uaexp/is-abstract? true)
+                               release-status          (assoc :uaexp/release-status release-status)
+                               symmetric?              (assoc :uaexp/symmetric? true))
+                  rev-schema (when inverse-name
+                               (cond-> {:db/ident (keyword "P5StdRefType" (csk/->kebab-case inverse-name))
+                                        :db/valueType :db.type/ref
+                                        :db/cardinality (->  p5-card/card-table (get browse-name) :inverse-cardinality)
+                                        :uaexp/inverse? true
+                                        :uaexp/id id}
+                                 documentation           (assoc :db/doc documentation)
+                                 category                (assoc :uaexp/category category)
+                                 is-abstract?            (assoc :uaexp/is-abstract? true)
+                                 release-status          (assoc :uaexp/release-status release-status)
+                                 symmetric?              (assoc :uaexp/symmetric? true)))]
+              (cond-> [fwd-schema] rev-schema (conj rev-schema))))]
+    (let [ref-types (->> p5 :NodeSet/content (filterv #(= (:Node/type %) :UAReferenceType)))
+          result (atom [])]
+      (doseq [typ ref-types]
+        (swap! result into (ref2schema typ)))
+      @result)))
 
 (defn ^:admin make-schema-info
   "This creates schema maps in a map indexed by the object type strings, for example, 'Node' and 'NodeSet, and 'P5RefType'.
@@ -702,12 +516,13 @@
                                       (assoc m k (->> v (sort-by :db/ident) vec))))
                                   {}
                                   ?d)
-                       #_(dissoc ?d :other)      ; These SHOULD BE inside P5RefType...
-                       #_(dissoc ?d :P5RefType))  ; ... which, themselves, are not correctly processed by learn-schema-basic
+                       (dissoc ?d :other)      ; These SHOULD BE inside P5RefType...
+                       (dissoc ?d "P5RefType")  ; ... which, themselves, are not correctly processed by learn-schema-basic
+                       (dissoc ?d "IMPL"))      ; This is :IMPL/ref, with will be resolved while storing entities.
          bad-keys (sets/difference (-> schema-info keys set) expected-ns)]
      (when (not-empty bad-keys)
        (log! :warn (str "There are entity types that need investigation: " bad-keys)))
-     (merge schema-info (make-p5-std-ref-type-schema @p5-memo)))))
+     (merge schema-info {"P5StdRefType" (make-p5-std-ref-type-schema @p5-memo)}))))
 
 ;;;-------------------- Start and stop
 (defn start-server [] :started)

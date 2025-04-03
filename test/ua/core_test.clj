@@ -7,6 +7,7 @@
    [ua.core            :as core]
    [develop.dutil      :as dutil :refer [ns-setup!]]
    [ua.db-util         :as dbu]
+   [ua.p5-cardinality  :as p5-card]
    [jsonista.core      :as json]
    [ua.xml-util        :as xu :refer [read-xml]]))
 
@@ -73,10 +74,9 @@
                {:UAbase/ReferenceType "HasModellingRule", :Reference/id "i=78"}
                {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
 
-(def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5") #_(update :xml/content no-tags)))
+(def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5")))
+(def p5 (-> "data/part5/p5.edn" slurp edn/read-string))
 
-;;; I had to do this in parts!
-;;;(def p5 (-> "data/part5/p5.edn" slurp :edn/read-string))
 (def ref-types
   "Ref types indexed by their Node/id."
   (->> p5
@@ -262,3 +262,23 @@
                       xu/clean-whitespace
                       xu/detagify
                       vector)}))
+
+;;; ----------------------------------
+(def ref-attrs
+  "A set of the attributes found in Part 5 ReferenceTypes."
+  (let [slots (atom #{})]
+    (doseq [x (->> p5 :NodeSet/content (filter #(= (:Node/type %) :UAReferenceType)))]
+      (swap! slots into (keys x)))
+    (-> slots deref sort vec)))
+
+(def card-table
+  (->> p5
+       :NodeSet/content
+       (filter #(= (:Node/type %) :UAReferenceType))
+       (mapv (fn [ref-typ]
+               (cond-> {}
+                 true                           (assoc :name (:Node/display-name ref-typ))
+                 true                           (assoc :cardinality (-> (get p5-card/ref-type-cardinality (:Node/display-name ref-typ)) :cardinality))
+                 (:Node/inverse-name ref-typ)   (assoc :inverse-name (:Node/inverse-name ref-typ))
+                 (:Node/inverse-name ref-typ)   (assoc :inverse-cardinality :db-cardinality/db-*))))
+       (sort-by :name)))

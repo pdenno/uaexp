@@ -1,5 +1,6 @@
 {:paths   ["src"]
- :deps    {com.cemerick/url                    {:mvn/version "0.1.1"}
+ :deps    {camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.3"}
+           com.cemerick/url                    {:mvn/version "0.1.1"}
            com.taoensso/timbre                 {:mvn/version "6.6.1"} ; Keep to reign in datahike.
            com.taoensso/telemere               {:mvn/version "1.0.0-RC5"}
            com.taoensso/telemere-slf4j         {:mvn/version "1.0.0-RC5"} ; Just adding it here initializes it; try (tel/check-interop).
