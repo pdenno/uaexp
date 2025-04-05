@@ -4,8 +4,8 @@
    [camel-snake-kebab.core      :as csk]
    [clojure.edn                 :as edn]
    [clojure.instant             :as instant]
-   [clojure.pprint              :refer [cl-format]]
-   [clojure.set                 :as sets]
+   [clojure.pprint              :refer [cl-format pprint]]
+   [clojure.set                 :as set]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.p5-cardinality           :as p5-card]
@@ -17,8 +17,7 @@
 
 (def debugging? (atom false))
 (def diag (atom false))
-
-(def nyi (atom #{}))
+(declare write-schema+-file)
 
 ;;; ToDo: isForward, a common XML attribute, is not in this list. Why?
 (def attr-status-keys
@@ -82,6 +81,7 @@
   (call-this {:obj obj})
   :failure/rewrite-xml-nil-method)
 
+(def nyi "nyi = Not yet implemented" (atom #{}))
 (defmethod rewrite-xml :default [obj]
   (log! :warn (str "No method using default = " (:xml/tag obj)))
   (swap! nyi conj (:xml/tag obj))
@@ -385,7 +385,7 @@
         (map? obj)     :db.type/ref
         (boolean? obj) :db.type/boolean
         (inst? obj)    :db.type/instant
-        :else (log! :warn (str "Unknown type for schema: " obj))))
+        :else (throw (ex-info  "Unknown type for schema: " {:obj obj}))))
 
 (defn  ^:admin sample-vec
   "Run db-type-of on just some of the data in vec."
@@ -434,9 +434,7 @@
 
 ;;; (->> "data/part5/p5.edn" slurp edn/read-string core/learn-schema (sort-by :db/ident))
 (defn ^:admin learn-schema-basic
-  "Return DH/DS schema objects for the data provided.
-   Limitation: It can't learn from binding sets; the attributes of those are not the
-   data's attributes, and everything will appear as multiplicity 1."
+  "Return DH/DS schema objects for the data provided."
   [data & {:keys [known-schema datahike?] :or {known-schema {} datahike? true}}]
   (let [learned (atom known-schema)]
     (letfn [(update-learned! [k v]
@@ -447,11 +445,13 @@
                     this-card (if (or vec? (= card :db.cardinality/many)) ; permissive to many
                                 :db.cardinality/many
                                 :db.cardinality/one)]
-                (if (and typ (not= typ this-typ))
-                  (log! :warn (str "Different types: " k " first: " typ " second: " this-typ))
-                  (swap! learned #(-> %
-                                      (assoc-in [k :db/cardinality] this-card)
-                                      (assoc-in [k :db/valueType] this-typ))))))
+                (when (keyword? this-typ) ; Could be nil.
+                  (if (and typ (not= typ this-typ))
+                    ;; Silly that (str nil) is ""!
+                    (log! :warn (cl-format  nil "Different types for key k =  ~S  typ =  ~S  this-typ = ~S. (Box these?)" k typ this-typ))
+                    (swap! learned #(-> %
+                                        (assoc-in [k :db/cardinality] this-card)
+                                        (assoc-in [k :db/valueType] this-typ)))))))
             (lsw-aux [obj]
               (cond (map? obj) (doall (map (fn [[k v]]
                                              (update-learned! k v)
@@ -460,10 +460,6 @@
                     (coll? obj) (doall (map lsw-aux obj))))]
       (lsw-aux data)
       (schema-for-db @learned (if datahike? :datahike :datascript)))))
-
-(def ^:admin expected-ns
-  "These are keys returned by make-schema-info that are expected; schema is or can be specified for them."
-  #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5RefType" "P6ByteString" "RolePerm" "UAExtObj" "box" "Field"})
 
 (def p5-memo "Keep the Part 5 structure so you don't have to slurp and read-string it." (atom nil))
 
@@ -498,6 +494,25 @@
         (swap! result into (ref2schema typ)))
       @result)))
 
+#_(defn plus-style
+  "Reorganize the schema, which is a map keyed by category with values being a vector of all the schema in that category,
+   to a map with keys being a :db/ident and values being the rest of the schema (schema sans :db/ident)."
+  [schema-info]
+  (let [result (atom {})
+        skeys (-> schema-info keys sort)]
+    (doseq [k skeys]
+      (let [schemas (get schema-info k)]
+        (log! :info (str (count schemas) " in " k))
+        (doseq [s schemas]
+          (swap! result #(assoc % (:db/ident s) (dissoc s :db/ident))))))
+    @result))
+
+
+(def ^:admin expected-ns
+  "These are keys returned by make-schema-info that are expected. schema is or can be specified for them."
+  #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5StdRefType" "P6ByteString" "RolePerm" "UAExtObj" "box" "Field"})
+
+;;; This is essentially 'top-level' of the functionality in this file.
 (defn ^:admin make-schema-info
   "This creates schema maps in a map indexed by the object type strings, for example, 'Node' and 'NodeSet, and 'P5RefType'.
    Some of these can be used as is. Exceptions:
@@ -510,19 +525,42 @@
                        (reset! p5-memo ?d) ; We'll use this below, but we keep it public for debugging.
                        (learn-schema-basic ?d)
                        (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
-                       (reduce-kv (fn [m k v]
+                       #_(reduce-kv (fn [m k v]
                                     (if (= k :other)
                                       (assoc m k v)
                                       (assoc m k (->> v (sort-by :db/ident) vec))))
                                   {}
                                   ?d)
-                       (dissoc ?d :other)      ; These SHOULD BE inside P5RefType...
-                       (dissoc ?d "P5RefType")  ; ... which, themselves, are not correctly processed by learn-schema-basic
-                       (dissoc ?d "IMPL"))      ; This is :IMPL/ref, with will be resolved while storing entities.
-         bad-keys (sets/difference (-> schema-info keys set) expected-ns)]
+                       (dissoc ?d :other)       ; These should be inside P5StdRefType, handled separately below.
+                       (dissoc ?d "IMPL"))      ; This is :IMPL/ref, which will be resolved while storing entities.
+         found-keys (-> schema-info keys set)
+         bad-keys (set/difference found-keys expected-ns)]
      (when (not-empty bad-keys)
        (log! :warn (str "There are entity types that need investigation: " bad-keys)))
-     (merge schema-info {"P5StdRefType" (make-p5-std-ref-type-schema @p5-memo)}))))
+     (when-let [missing (not-empty (set/difference expected-ns found-keys))]
+       (log! :warn (str "Types not present: " missing)))
+     (-> schema-info
+         (assoc "P5StdRefType" (make-p5-std-ref-type-schema @p5-memo))
+         ;plus-style
+         write-schema+-file))))
+
+(defn write-schema+-file
+  "Write the schema-info to a file nicely."
+  [schema-info]
+  (let [s (atom "")
+        skeys (-> schema-info keys sort)]
+    (letfn [(write [x] (swap! s #(str % x)))]
+      (write (str ";;; Schema created " (java.util.Date.) "\n\n"))
+      (write "{\n")
+      (doseq [k skeys]
+        (write (str " ;; --------------------------- " k "\n"))
+        (doseq [s (->> (get schema-info k) (sort-by :db/ident))]
+          (write (str " " (:db/ident s) "\n "  (with-out-str (pprint (dissoc s :db/ident))) "\n")))
+        (write "\n"))
+      (write "}"))
+    (spit "data/part5/p5-temp-schema+.edn" @s)
+    (log! :info "Wrote data/part5/p5-temp-schema+.edn")))
+
 
 ;;;-------------------- Start and stop
 (defn start-server [] :started)

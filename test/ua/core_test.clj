@@ -12,7 +12,6 @@
    [ua.xml-util        :as xu :refer [read-xml]]))
 
 (def p5-tags (atom #{}))
-(def robot-tags (atom #{}))
 
 (defn xml-tags
   "Return a set of the xml tags in the argument XML"
@@ -25,22 +24,6 @@
     (xt xml)
     @tag-atm))
 
-(defn find-tags []
-  (-> (read-xml "data/OPC_UA_Core_Model_2710599569.xml" {:root-name "p5"})
-      (xml-tags p5-tags))
-  (-> (read-xml "data/Opc.Ua.Robotics.NodeSet2.xml" {:root-name "p5"})
-      (xml-tags robot-tags))
-  {:p5 @p5-tags
-   :robot @robot-tags})
-
-(def robot (read-xml "data/Opc.Ua.Robotics.NodeSet2.xml" {:root-name "p5"}))
-
-#_(defn tryme []
-  (->> (read-xml #_"data/Opc.Ua.Robotics.NodeSet2.xml"
-                 "data/tiny.xml"
-                 {:root-name "p5"})
-       #_:xml/content
-       #_(mapv rewrite-xml)))
 
 (def example-ua-variable
   '#:xml{:tag :p5/UAVariable,
@@ -98,7 +81,7 @@
   (as-> "data/part5/p5.edn" ?d
     (slurp ?d)
     (edn/read-string ?d)
-    (core/learn-schema ?d)
+    (core/learn-schema-basic ?d)
     (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
     (reduce-kv (fn [m k v]
                  (assoc m k (->> v
@@ -118,7 +101,7 @@
   (as-> "data/part5/p5.edn" ?d
     (slurp ?d)
     (edn/read-string ?d)
-    (core/learn-schema ?d)
+    (core/learn-schema-basic ?d)
     (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
     (reduce-kv (fn [m k v]
                  (if (= k :other)
@@ -271,7 +254,7 @@
       (swap! slots into (keys x)))
     (-> slots deref sort vec)))
 
-(def card-table
+#_(def card-table
   (->> p5
        :NodeSet/content
        (filter #(= (:Node/type %) :UAReferenceType))
