@@ -494,23 +494,32 @@
         (swap! result into (ref2schema typ)))
       @result)))
 
-#_(defn plus-style
-  "Reorganize the schema, which is a map keyed by category with values being a vector of all the schema in that category,
-   to a map with keys being a :db/ident and values being the rest of the schema (schema sans :db/ident)."
-  [schema-info]
-  (let [result (atom {})
-        skeys (-> schema-info keys sort)]
-    (doseq [k skeys]
-      (let [schemas (get schema-info k)]
-        (log! :info (str (count schemas) " in " k))
-        (doseq [s schemas]
-          (swap! result #(assoc % (:db/ident s) (dissoc s :db/ident))))))
-    @result))
-
-
-(def ^:admin expected-ns
+(def expected-ns
   "These are keys returned by make-schema-info that are expected. schema is or can be specified for them."
   #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5StdRefType" "P6ByteString" "RolePerm" "UAExtObj" "box" "Field"})
+
+(def schema-mods
+  "Modifications to computed schema, for example which ones are keys."
+  [{:db/ident :Node/id :db/unique :db.unique/identity}])
+
+(defn mod-schema
+  "Modify the schema with schema-mods."
+  [schemas schema-mods]
+  (let [updated-schemas (atom schemas)]
+    (doseq [schema-mod schema-mods]
+      (let [{:db/keys [ident]} schema-mod]
+        (swap! updated-schemas
+               (fn [u-s]
+                 (reduce-kv (fn [m k v]
+                              (assoc m k (reduce (fn [res s]
+                                                   (if (= ident (:db/ident s))
+                                                     (conj res (merge s schema-mod))
+                                                     (conj res s)))
+                                                 []
+                                                 v)))
+                            {}
+                            u-s)))))
+    @updated-schemas))
 
 ;;; This is essentially 'top-level' of the functionality in this file.
 (defn ^:admin make-schema-info
@@ -525,12 +534,6 @@
                        (reset! p5-memo ?d) ; We'll use this below, but we keep it public for debugging.
                        (learn-schema-basic ?d)
                        (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
-                       #_(reduce-kv (fn [m k v]
-                                    (if (= k :other)
-                                      (assoc m k v)
-                                      (assoc m k (->> v (sort-by :db/ident) vec))))
-                                  {}
-                                  ?d)
                        (dissoc ?d :other)       ; These should be inside P5StdRefType, handled separately below.
                        (dissoc ?d "IMPL"))      ; This is :IMPL/ref, which will be resolved while storing entities.
          found-keys (-> schema-info keys set)
@@ -541,7 +544,7 @@
        (log! :warn (str "Types not present: " missing)))
      (-> schema-info
          (assoc "P5StdRefType" (make-p5-std-ref-type-schema @p5-memo))
-         ;plus-style
+         (mod-schema schema-mods)
          write-schema+-file))))
 
 (defn write-schema+-file
