@@ -2,6 +2,7 @@
   "Utilities for schema-db (which will likely become a library separate from rad-mapper"
   (:require
    [datahike.api          :as d]
+   [datahike.pull-api     :as dp]
    [taoensso.telemere     :as log :refer [log!]]))
 
 (defonce databases-atm (atom {}))
@@ -84,3 +85,34 @@
                     (vector? obj)   (mapv ub obj)
                     :else           obj)))]
     (ub data)))
+
+;;; This seems to cause problems in recursive resolution. (See resolve-db-id)"
+(defn db-ref?
+  "It looks to me that a datahike ref is a map with exactly one key: :db/id."
+  [obj]
+  (and (map? obj) (= [:db/id] (keys obj))))
+
+;;; (get-node-eid #:Node{:browse-name "ClientDescription"})
+(defn get-node-eid [{:Node/keys [browse-name id]} db-id]
+  (cond
+    id          (d/q '[:find ?e . :in $ ?id   :where [?e :Node/id ?id]]            @(connect-atm db-id) id)
+    browse-name (d/q '[:find ?e . :in $ ?name :where [?e :Node/browse-name ?name]] @(connect-atm db-id) browse-name)))
+
+
+(defn resolve-db-id
+  "Return the form resolved, removing properties in filter-set,
+   a set of db attribute keys, for example, #{:db/id}."
+  ([form conn-atm] (resolve-db-id form conn-atm #{}))
+  ([form conn-atm filter-set]
+   (letfn [(resolve-aux [obj]
+             (cond
+               (db-ref? obj) (let [res (dp/pull @conn-atm '[*] (:db/id obj))]
+                               (if (= res obj) nil (resolve-aux res)))
+               (map? obj) (reduce-kv (fn [m k v] (if (filter-set k) m (assoc m k (resolve-aux v))))
+                                     {}
+                                     obj)
+               (vector? obj)      (mapv resolve-aux obj)
+               (set? obj)    (set (mapv resolve-aux obj))
+               (coll? obj)        (map  resolve-aux obj)
+               :else  obj))]
+     (resolve-aux form))))

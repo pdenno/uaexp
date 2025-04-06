@@ -1,5 +1,6 @@
 (ns ua.part5-schema
   (:require
+   [camel-snake-kebab.core      :as csk]
    [clojure.edn                 :as edn]
    [clojure.java.io             :as io]
    [clojure.pprint              :refer [pprint]]
@@ -1252,7 +1253,7 @@
   [schema+]
   (let [collisions (set/intersection (-> schema+ keys set) (-> part5-schema+ keys set))]
     (when (not-empty collisions)
-      (log! :warn (str "The following are defined in Part5 and are their redefinition in the nodeset is being ignored" collisions)))
+      (log! :warn (str "The following are defined in Part5; their redefinition in the nodeset is being ignored: " collisions)))
     (-> schema+ (merge part5-schema+) datahike-schema)))
 
 (defn collect-lookups
@@ -1268,23 +1269,55 @@
       (cl obj)
       @lookups)))
 
-;;; This takes over 2 minutes so I don't do it often!
-(defonce lookups-loaded? (atom false))
+;;; (p5s/load-lookups! :part5 p5)
+(defn load-lookups! [db-id nodeset] ; ToDo: Chunk these! (Seems you can't do all of them at once.
+  (assert (contains? nodeset :NodeSet/content))
+  (let [content (:NodeSet/content nodeset)
+        cnt (atom 0)]
+    (log! (str "Loading " (count content) " lookups."))
+    (loop [lookups (collect-lookups content)]
+      (let [[these others] (split-at 100 lookups)]
+        (when (not-empty these)
+          (swap! cnt #(+ % (count these)))
+          (d/transact (connect-atm db-id) {:tx-data (vec these)})
+          (recur others))))
+    (log! :info (str "Loaded " @cnt " lookups."))))
 
-(defn load-lookups [nodeset conn] ; ToDo: Chunk these! (Seems you can't do all of them at once.
-  (log! "Loading lookups. This takes about 2 minutes!")
-  (doseq [lookup (collect-lookups nodeset)]
-    (d/transact conn {:tx-data [lookup]}))
-  (reset! lookups-loaded? true))
+(defn node-by-i=
+  "Return the node object having :Node/id = i=. (i= is a string; I know it's sick!)"
+  [i= nodeset]
+  (some #(when (= i= (:Node/id %)) %) (:NodeSet/content nodeset)))
+
+
+(defn impl-ref-pred-symbol
+  "A UA Reference is a map with just one entry. The key of this refers to a 'predicate symbol' and the value is a {:IMPL/ref <i=n>}
+   It is permitted that the 'predicate symbol' position of a UA Reference is  also a {:IMPL/ref <i=n>}.
+   In this case, the {:IMPL/ref <i=n>} should point to a UAReferenceType. When we find these, we
+   return (keyword 'P5StdRefType' (-> {:IMPL/ref <i=n>} lookup-node :Node/display-name sck/->kebab-case))."
+  [i= nodeset]
+  (let [node (node-by-i= i= nodeset)]
+    (if (= :UAReferenceType (:Node/type node))
+      (keyword "P5StdRefType" (-> node :Node/display-name csk/->kebab-case))
+      (throw (ex-info "Could not resolve predicate symbol." {:i= i=, :node node})))))
+
+(def nodeset-memo (atom nil))
 
 (defn resolve-node-ids
   [node db-id]
-  (letfn [(lookup-ref [i=]
+  (letfn [(key-check [k]
+            (if (map? k)
+              (if (contains? k :IMPL/ref)
+                (let [pred-symbol (impl-ref-pred-symbol (:IMPL/ref k) @nodeset-memo)]
+                  (log! :info (str "IMPL/ref in predicate symbol position is " pred-symbol))
+                  pred-symbol)
+                (log! :warn (str "This map should have an IMPL/ref: " k)))
+              k))
+          (lookup-ref [i=]
             (or (d/q '[:find ?e . :in $ ?id :where [?e :Node/id ?id]] @(connect-atm db-id) i=)
                 (throw (ex-info "No DB entry for index:" {:i= i=}))))
           (rni [obj]
             (cond (and (map? obj) (contains? obj :IMPL/ref))  {:db/id (lookup-ref (:IMPL/ref obj))}
-                  (map? obj)                                  (reduce-kv (fn [m k v] (assoc m k (rni v))) {} obj)
+                  (map? obj)                                  (reduce-kv (fn [m k v] (assoc m (key-check k) (rni v))) {} obj)
                   (vector? obj)                               (mapv rni obj)
                   :else                                       obj))]
     (rni node)))
@@ -1293,16 +1326,23 @@
   "Read the part5 edn into the DB. This is two-staged, wherein the first stage creates lookups,
    and the second stage loads the full object."
   [db-id nodeset]
-  (let [conn (connect-atm db-id)]
-    (when-not @lookups-loaded? (load-lookups nodeset conn))
-    (doseq [n (:Nodeset/content  nodeset)]
-      (d/transact conn {:tx-data [(resolve-node-ids n db-id)]}))))
+  (reset! nodeset-memo nodeset)
+  (load-lookups! db-id nodeset)
+  (log! :info (str "Loading " (-> nodeset :NodeSet/content count) " nodes."))
+  (let [cnt (atom 0)]
+    (loop [nodes (:NodeSet/content  nodeset)]
+      (let [[these others] (split-at 50 nodes)]
+        (when (not-empty these)
+          (swap! cnt #(+ % (count these)))
+          (d/transact (connect-atm db-id) {:tx-data (mapv #(resolve-node-ids % db-id)  these)})
+          (recur others))))
+    (log! :info (str "Loaded " @cnt " nodes."))))
 
-;;; (p5s/create-ua-db! {:nodeset (-> "data/part5/p5.edn" slurp edn/read-string)})
-(defn create-ua-db!
+;;; (p5s/create-ua-db! {:nodeset p5})
+(defn ^:admin create-ua-db!
   "Create a part5 database from an EDN file. Every UA DB would start with this.
    If schema is provided it is merged with the part5 schema."
-  [& {:keys [db-id schema nodeset] :or {db-id :part5}}]
+  [& {:keys [schema nodeset db-id] :or {schema {} db-id :part5}}]
   (log! :info (str "Creating a Part 5-based database. " db-id))
   (let [schema (if schema (merge-warn schema) part5-schema)
         cfg (db-cfg-map {:id db-id})]
