@@ -29,8 +29,10 @@
   (safe-alias 'mount  'mount.core)
   (safe-alias 'p      'promesa.core)
   (safe-alias 'px     'promesa.exec)
+  (safe-alias 'bp5    'ua.build-part5)
   (safe-alias 'core   'ua.core)
   (safe-alias 'dbu    'ua.db-util)
+  (safe-alias 'p5s    'ua.part5-schema)
   (safe-alias 'xu     'ua.xml-utils))
 
 (defn clean-form
