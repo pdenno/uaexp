@@ -86,33 +86,93 @@
                     :else           obj)))]
     (ub data)))
 
-;;; This seems to cause problems in recursive resolution. (See resolve-db-id)"
+;;; ------------------------------------------ resolve-node ---------------------------------------------------------
 (defn db-ref?
   "It looks to me that a datahike ref is a map with exactly one key: :db/id."
   [obj]
   (and (map? obj) (= [:db/id] (keys obj))))
 
-;;; (get-node-eid #:Node{:browse-name "ClientDescription"})
-(defn get-node-eid [{:Node/keys [browse-name id]} db-id]
-  (cond
-    id          (d/q '[:find ?e . :in $ ?id   :where [?e :Node/id ?id]]            @(connect-atm db-id) id)
-    browse-name (d/q '[:find ?e . :in $ ?name :where [?e :Node/browse-name ?name]] @(connect-atm db-id) browse-name)))
+;;; (get-node-eid "i=25345" :part5)
+(defn get-node-eid [i=  db-id] (d/q '[:find ?e  . :in $ ?id   :where [?e   :Node/id ?id]] @(connect-atm db-id) i=))
+(defn get-node-i=  [eid db-id] (d/q '[:find ?id . :in $ ?eid  :where [?eid :Node/id ?id]] @(connect-atm db-id) eid))
 
+;;; I'd like not to need this; it makes a dangerous assumption!
+#_(defn i=? [s] (and (string? s)
+                   (or (re-matches #"^i=\d+$"          s)
+                       (re-matches #"^ns=\d+;i=\d+$"   s)))) ; ToDo: right?
 
+;;; This one gets called once to replace any remaining :db/id.
+(declare get-reference)
+
+;;; The original!
 (defn resolve-db-id
+  "Replace {:db/id eid} with 'i=<n>'."
+  [obj db-id]
+  (letfn [(rdbid [obj]
+            (cond  (db-ref? obj)   (get-node-i= (:db/id obj) db-id)
+                   (map? obj)      (reduce-kv (fn [m k v]
+                                                (if (= k :Node/references)
+                                                  (assoc m k (mapv #(get-reference (:db/id %) db-id) v))
+                                                  (assoc m k (rdbid v))))
+                                                {} obj)
+                   (vector? obj)   (mapv rdbid obj)
+                   :else           obj))]
+    (rdbid obj)))
+
+(defn ref-ref?
+  "Returns true if the map is something like {:P5StdRefType/:subtype-of 'i=33'}."
+  [obj]
+  (and (map? obj)
+       (== 1 (count obj))
+       (= "P5StdRefType" (-> obj keys first namespace)))) ; ToDo Replace this with a test that the thing is a ReferenceType (maybe not std).
+
+(defn resolve-node-1
+  "Pull the object at i= and resolve its :db/ids to i=<n>."
+  [i= db-id]
+  (-> (dp/pull @(connect-atm db-id) '[*] (get-node-eid i= db-id))
+      (dissoc :db/id)))
+
+(defn get-reference [obj db-id]
+ ; (log! :info (str "get-reference obj = " obj))
+  (cond (db-ref? obj) (-> (dp/pull @(connect-atm db-id) '[*] (:db/id obj))
+                          (dissoc :db/id)
+                          (resolve-db-id db-id))
+        ;; ToDo: This assumes the string is i=? true. Would be better were this to come in as a :db/id!
+        (ref-ref? obj) {(-> obj keys first) (-> obj vals first (resolve-node-1 db-id))}
+        (map? obj)     obj)) ; It is an expanded reference object.
+
+;;; ToDo: Still broken (dbu/resolve-node "i=25345" :part5 {:depth 3}) fails.
+;;;       But there's more wrong: I'd like not to use i=? true anywhere. get-reference assumes it.
+(defn resolve-node
   "Return the form resolved, removing properties in filter-set,
    a set of db attribute keys, for example, #{:db/id}."
-  ([form conn-atm] (resolve-db-id form conn-atm #{}))
-  ([form conn-atm filter-set]
-   (letfn [(resolve-aux [obj]
-             (cond
-               (db-ref? obj) (let [res (dp/pull @conn-atm '[*] (:db/id obj))]
-                               (if (= res obj) nil (resolve-aux res)))
-               (map? obj) (reduce-kv (fn [m k v] (if (filter-set k) m (assoc m k (resolve-aux v))))
-                                     {}
-                                     obj)
-               (vector? obj)      (mapv resolve-aux obj)
-               (set? obj)    (set (mapv resolve-aux obj))
-               (coll? obj)        (map  resolve-aux obj)
-               :else  obj))]
-     (resolve-aux form))))
+  [i= db-id & {:keys [depth] :or {depth 1}}]
+  (letfn [(walk-dbid2i= [obj]
+            (cond (db-ref? obj)     (get-node-i= (:db/id obj) db-id)
+                  (map? obj)        (reduce-kv (fn [m k v]
+                                                 (cond (= k :Node/id)              m
+                                                       (= k :Node/references)      (assoc m k v)
+                                                       :else                       (assoc m k (walk-dbid2i= v))))
+                                               {} obj)
+                  (vector? obj)     (mapv walk-dbid2i= obj)
+                  :else  obj))
+          (walk-final [obj]
+            (cond (db-ref? obj)     (get-reference obj db-id)
+                  (map? obj)        (reduce-kv (fn [m k v] (assoc m k (walk-final v))) {} obj)
+                  (vector? obj)     (mapv walk-final obj)
+                  :else             obj))
+          (deeper [obj]
+            (cond (map? obj)        (reduce-kv (fn [m k v] (cond (= k :Node/id)           m
+                                                                 (= k :Node/references)   (assoc m k (mapv #(get-reference % db-id) v))
+                                                                 :else                    (assoc m k (deeper v))))
+                                               {}
+                                               obj)
+                  (vector? obj)     (mapv deeper obj)
+                  :else             obj))]
+    (let [result (loop [obj (resolve-node-1 i= db-id)
+                        d depth]
+                   (if (zero? d)
+                     (walk-dbid2i= obj)
+                     (recur (deeper obj)
+                            (dec d))))]
+      (walk-final result))))
