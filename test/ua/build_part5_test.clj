@@ -5,7 +5,7 @@
    [clojure.pprint     :refer [pprint]]
    [clojure.test       :refer [deftest is testing]]
    [ua.core            :as core]
-   [develop.dutil      :as dutil :refer [ns-setup!]]
+   [develop.repl      :as dutil :refer [ns-setup!]]
    [ua.db-util         :as dbu :refer [connect-atm]]
    [ua.p5-cardinality  :as p5-card]
    [jsonista.core      :as json]

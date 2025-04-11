@@ -4,14 +4,14 @@
            com.taoensso/timbre                 {:mvn/version "6.6.1"} ; Keep to reign in datahike.
            com.taoensso/telemere               {:mvn/version "1.0.0-RC5"}
            com.taoensso/telemere-slf4j         {:mvn/version "1.0.0-RC5"} ; Just adding it here initializes it; try (tel/check-interop).
-           io.github.paintparty/bling          {:mvn/version "0.4.2"}
-           io.replikativ/datahike              {:mvn/version "0.6.1594"}
+           io.github.paintparty/bling          {:mvn/version "0.5.2"}
+           io.replikativ/datahike              {:mvn/version "0.6.1595"}
            metosin/jsonista                    {:mvn/version "0.3.13"}
            mount/mount                         {:mvn/version "0.1.21"}
            net.clojars.wkok/openai-clojure     {:mvn/version "0.22.0"}
-           org.apache.logging.log4j/log4j-api  {:mvn/version "2.24.3"} ; ToDo: Move logging to :dev.
-           org.apache.logging.log4j/log4j-core {:mvn/version "2.24.3"} ; ToDo: Move logging to :dev.
+           org.apache.logging.log4j/log4j-core {:mvn/version "2.24.3"} ; Used by jetty. ToDo: Move logging to :dev.
            org.clojure/clojure                 {:mvn/version "1.12.0"}
+           org.clojure/tools.logging           {:mvn/version "1.3.0"}
            org.clojure/data.xml                {:mvn/version "0.2.0-alpha9"}
            org.slf4j/slf4j-nop                 {:mvn/version "2.0.17"}}    ; Stop spurious logging!
  ;; See .dir-locals.el for some defaults on CIDER C-c M-j
@@ -27,23 +27,14 @@
                                          com.lambdaisland/classpath   {:mvn/version "0.6.58"}
                                          org.clojure/tools.namespace  {:mvn/version "1.5.0"}}}
 
-           :build    {:deps {io.github.clojure/tools.build {:mvn/version "0.10.7"}}
+           :build    {:deps {io.github.clojure/tools.build {:mvn/version "0.10.8"}}
                       :ns-default build}}}
 
 
 ;;; clj -X:search/outdated
-;;;   |    :file |                               :name |  :current |   :latest |
-;;;   |----------+-------------------------------------+-----------+-----------|
-;;;   | deps.edn |          com.lambdaisland/classpath |    0.5.48 |    0.6.58 |
-;;;   |          |          com.lambdaisland/classpath |    0.5.48 |    0.6.58 |
-;;;   |          |               com.taoensso/telemere | 1.0.0-RC3 | 1.0.0-RC5 |
-;;;   |          |         com.taoensso/telemere-slf4j | 1.0.0-RC3 | 1.0.0-RC5 |
-;;;   |          |                 com.taoensso/timbre |     6.5.0 |     6.6.1 |
-;;;   |          |       io.github.clojure/tools.build |    0.10.4 |    0.10.7 |
-;;;   |          |              io.replikativ/datahike |  0.6.1568 |  0.6.1594 |
-;;;   |          |                         mount/mount |    0.1.18 |    0.1.21 |
-;;;   |          |     net.clojars.wkok/openai-clojure |    0.18.1 |    0.22.0 |
-;;;   |          |  org.apache.logging.log4j/log4j-api |    2.23.1 |    2.24.3 |
-;;;   |          | org.apache.logging.log4j/log4j-core |    2.23.1 |    2.24.3 |
-;;;   |          |                 org.clojure/clojure |    1.11.3 |    1.12.0 |
-;;;   |          |                 org.slf4j/slf4j-nop |    2.0.13 |    2.0.17 |
+
+;;;   |    :file |                         :name | :current |  :latest |
+;;;   |----------+-------------------------------+----------+----------|
+;;;   | deps.edn | io.github.clojure/tools.build |   0.10.7 |   0.10.8 |
+;;;   |          |    io.github.paintparty/bling |    0.4.2 |    0.5.2 |
+;;;   |          |        io.replikativ/datahike | 0.6.1594 | 0.6.1595 |

@@ -2,17 +2,14 @@
   (:require
    [camel-snake-kebab.core      :as csk]
    [clojure.edn                 :as edn]
-   [clojure.java.io             :as io]
    [clojure.pprint              :refer [pprint]]
    [clojure.set                 :as set]
    [datahike.api                :as d]
-   [datahike.pull-api            :as dp]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.build-part5              :as build]
-   [ua.db-util                  :as du :refer [connect-atm datahike-schema db-cfg-map register-db]]
-   [ua.util                     :as util :refer [util-state]]                            ; For mount
-   [ua.xml-util        :as xu :refer [read-xml]]))
+   [ua.db-util                  :as dbu :refer [connect-atm datahike-schema db-cfg-map register-db]]
+   [ua.xml-util                 :as xu]))
 
 (def part5-schema+
   "Schema for Part 5 created Sat Apr 05 21:15:30 EDT 2025.
@@ -1338,29 +1335,33 @@
           (recur others))))
     (log! :info (str "Loaded " @cnt " nodes."))))
 
-;;; (p5s/create-ua-db! {:nodeset p5})
 (defn ^:admin create-ua-db!
   "Create a part5 database from an EDN file. Every UA DB would start with this.
    If schema is provided it is merged with the part5 schema."
   [& {:keys [schema nodeset db-id] :or {schema {} db-id :part5}}]
-  (log! :info (str "Creating a Part 5-based database. " db-id))
-  (let [schema (if schema (merge-warn schema) part5-schema)
-        cfg (db-cfg-map {:id db-id})]
-    (when (d/database-exists? cfg) (d/delete-database cfg))
-    (d/create-database cfg)
-    (register-db db-id cfg)
-    (let [conn (connect-atm db-id)]
-      (d/transact conn schema)
-      (load-nodeset! db-id nodeset)
-      cfg)))
+  (log! :info (str "Creating a Part 5-based database named " db-id "."))
+  (if (get (System/getenv) "UAEXP_DB")
+    (let [schema (if schema (merge-warn schema) part5-schema)
+          cfg (db-cfg-map {:id db-id})]
+      (when (d/database-exists? cfg) (d/delete-database cfg))
+      (d/create-database cfg)
+      (register-db db-id cfg)
+      (let [conn (connect-atm db-id)]
+        (d/transact conn schema)
+        (load-nodeset! db-id nodeset)
+        cfg))
+    (log! :error "You have to set the environment variable UAEXP_DB to a directory.")))
+
+(defonce recreate-db? (atom false))
 
 ;;; ----------------------- Start and stop ----------------------------------------
 (defn init-part5
-  "Register DBs using "
+  "Register DBs (currently just a part5-only DB), loading if DB does not exist and recreate-db? (above) is true."
   []
-  (register-db :part5 (db-cfg-map {:type :ua-base}))
-  (load-part5!)
-  {:sys-cfg (db-cfg-map {:type :ua-base})})
+  (register-db :part5 (db-cfg-map {:id :part5 :type :ua-base}))
+  (when @recreate-db?
+    (create-ua-db! {:nodeset (-> "data/part5/p5.edn" slurp edn/read-string)}))
+  {:part5-config @(connect-atm :part5)})
 
 (defstate part5
   :start (init-part5))

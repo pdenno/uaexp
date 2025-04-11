@@ -3,7 +3,8 @@
   (:require
    [datahike.api          :as d]
    [datahike.pull-api     :as dp]
-   [taoensso.telemere     :as log :refer [log!]]))
+   [taoensso.telemere     :as log :refer [log!]]
+   [ua.util               :as util :refer [util-state]]))   ; For mount
 
 (defonce databases-atm (atom {}))
 
@@ -20,7 +21,7 @@
   (swap! databases-atm #(dissoc % k)))
 
 (def db-template
-  "Hitchhiker file-based DBs follow this form."
+  "Datahike file-based DBs follow this form."
   {:store {:backend :file :path "Provide a value!"} ; This is path to the database's root directory
    :keep-history? false
    :base-dir "Provide a value!"                     ; For convenience, this is just above the database's root directory.
@@ -85,7 +86,6 @@
                     (vector? obj)   (mapv ub obj)
                     :else           obj)))]
     (ub data)))
-
 ;;; ------------------------------------------ resolve-node ---------------------------------------------------------
 (defn db-ref?
   "It looks to me that a datahike ref is a map with exactly one key: :db/id."
@@ -132,6 +132,9 @@
              (-> obj vals first db-ref?)) {(-> obj keys first) (-> obj vals first :db/id (pull-node-with-eid db-id))}
         (map? obj)     obj)) ; It is an expanded reference object.
 
+
+;;; Next 3 could go back into resolve-node once they work!
+;;; Use deeper and walk-final with the REPL to debug.
 (defn walk-references
   [obj db-id]
   (cond (db-ref? obj)       (-> obj :db/id (get-node-i= db-id))

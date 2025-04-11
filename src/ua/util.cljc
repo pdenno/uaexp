@@ -9,7 +9,7 @@
    [mount.core           :as mount :refer [defstate]]
    #?@(:clj [[taoensso.telemere.tools-logging :as tel-log]])
    [taoensso.telemere           :as tel :refer [log!]]
-   [taoensso.timbre                 :as timbre])) ; To stop pesky datahike :debug messages.
+   [taoensso.timbre             :as timbre])) ; To stop pesky datahike :debug messages.
 
 #?(:clj
    (defn pr-bling [x] x)
