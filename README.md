@@ -20,7 +20,7 @@ Feel free to contact us if this work interests you!
   * From a shell prompt in the top-level directory of this repository:
 
  ```
- clj -M:dev:test
+ clj -M:dev
 
  ;;; Currently there will be some warnings from SLF4J, then the prompt 'user>'. Type:
  (start)
@@ -85,7 +85,7 @@ LOG/INFO  : - Loaded 5822 nodes.
 Now look for something in the DB:
 
 ```
-(dbu/resolve-node "i=25345" :part5) 
+(clojure.pprint/pprint (dbu/resolve-node "i=25345" :part5))
 
 #:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
        :type :UAReferenceType,
@@ -117,4 +117,4 @@ Now look for something in the DB:
 ```
 
 Of course, things will get more interesting once we have an API!
-Our next step is probably to provide one with graphQL.
+Our next step is probably to provide one with GraphQL.
