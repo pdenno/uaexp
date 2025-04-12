@@ -92,94 +92,62 @@
   [obj]
   (and (map? obj) (= [:db/id] (keys obj))))
 
-;;; (get-node-eid "i=25345" :part5)
+;;; (dbu/get-node-eid "i=25345" :part5)
 (defn get-node-eid [i=  db-id] (d/q '[:find ?e  . :in $ ?id   :where [?e   :Node/id ?id]] @(connect-atm db-id) i=))
 (defn get-node-i=  [eid db-id] (d/q '[:find ?id . :in $ ?eid  :where [?eid :Node/id ?id]] @(connect-atm db-id) eid))
 
-;;; I'd like not to need this; it makes a dangerous assumption!
-#_(defn i=? [s] (and (string? s)
-                   (or (re-matches #"^i=\d+$"          s)
-                       (re-matches #"^ns=\d+;i=\d+$"   s)))) ; ToDo: right?
-
-;;; This one gets called once to replace any remaining :db/id.
-(defn ref-ref?
-  "Returns true if the map is something like {:P5StdRefType/:subtype-of 'i=33'}."
-  [obj]
-  (and (map? obj)
-       (== 1 (count obj))
-       (= "P5StdRefType" (-> obj keys first namespace)))) ; ToDo Replace this with a test that the thing is a ReferenceType (maybe not std).
-
-(defn pull-node-with-i=
-  "Pull the object at i=<n>."
-  [i= db-id]
-  (-> (dp/pull @(connect-atm db-id) '[*] (get-node-eid i= db-id))
-      (dissoc :db/id)))
-
-(defn pull-node-with-eid
-  "Pull the object at argument entity-id."
-  [eid db-id]
-  (assert (number? eid))
-  (-> (dp/pull @(connect-atm db-id) '[*] eid)
-      (dissoc :db/id)))
-
-(defn pull-reference [obj db-id]
-  (log! :info (str "pull-reference: obj = " obj))
-  (cond (db-ref? obj) (-> (dp/pull @(connect-atm db-id) '[*] (:db/id obj))
-                          (dissoc :db/id)
-                          #_(dbid2i= db-id))
-        ;; ToDo: This assumes the string is i=? true. Would be better were this to come in as a :db/id!
-        (and (ref-ref? obj)
-             (-> obj vals first db-ref?)) {(-> obj keys first) (-> obj vals first :db/id (pull-node-with-eid db-id))}
-        (map? obj)     obj)) ; It is an expanded reference object.
-
-
-;;; Next 3 could go back into resolve-node once they work!
-;;; Use deeper and walk-final with the REPL to debug.
-(defn walk-references
-  [obj db-id]
-  (cond (db-ref? obj)       (-> obj :db/id (get-node-i= db-id))
-        (map? obj)          (reduce-kv (fn [m k v] (assoc m k (walk-references v db-id))) {} obj)
-        (vector? obj)       (mapv #(walk-references % db-id) obj)
-        :else               obj))
+(defn resolve-db-id
+  "Return the form resolved, removing properties in filter-set,
+   a set of db attribute keys, for example, #{:db/id}."
+  [form db-id & {:keys [keep-set drop-set]
+                 :or {drop-set #{:db/id}
+                      keep-set #{}}}]
+  (let [conn @(connect-atm db-id)]
+    (letfn [(resolve-aux [obj]
+              (cond
+                (db-ref? obj) (let [res (dp/pull conn '[*] (:db/id obj))]
+                                (if (= res obj) nil (resolve-aux res)))
+                (map? obj) (reduce-kv (fn [m k v]
+                                        (cond (drop-set k)                                    m
+                                              (and (not-empty keep-set) (not (keep-set k)))   m
+                                              :else                                           (assoc m k (resolve-aux v))))
+                                      {}
+                                      obj)
+                (vector? obj)      (mapv resolve-aux obj)
+                (set? obj)    (set (mapv resolve-aux obj))
+                (coll? obj)        (map  resolve-aux obj)
+                :else  obj))]
+      (resolve-aux form))))
 
 (defn walk-final
+  "Walk the structure, replacing :db/id with i=."
   [obj db-id]
-  (cond (db-ref? obj)     (get-node-i= (:db/id obj) db-id)
-        (map? obj)        (reduce-kv (fn [m k v]
-                                       (if (= k :Node/references)
-                                         (assoc m k (walk-references v db-id))
-                                         (assoc m k (walk-final v db-id))))
-                                     {}
-                                     obj)
-        (vector? obj)     (mapv #(walk-final % db-id) obj)
-        :else             obj))
+  (letfn [(wf-aux [obj]
+            (cond (db-ref? obj)     (get-node-i= (:db/id obj) db-id)
+                  (map? obj)        (reduce-kv (fn [m k v] (assoc m k (wf-aux v))) {} obj)
+                  (vector? obj)     (mapv wf-aux obj)
+                  :else             obj))]
+    (wf-aux obj)))
 
 (defn deeper
+  "Walk the structure, replacing :db/id maps with their one-step resolution."
   [obj db-id]
-  (letfn [(deeper-ref [obj]
-            (cond (db-ref? obj)          (-> obj :db/id (pull-node-with-eid db-id))
-                  (map? obj)             (reduce-kv (fn [m k v] (assoc m k (deeper-ref v))) {} obj)
-                  (vector? obj)          (mapv deeper-ref obj)
-                  :else                  obj))]
-    (cond (db-ref? obj)     obj
-          (map? obj)        (reduce-kv (fn [m k v] (cond (= k :Node/id)           m
-                                                         (= k :Node/references)   (assoc m k (mapv deeper-ref v))
-                                                         :else                    (assoc m k (deeper v db-id))))
-                                       {}
-                                       obj)
-          (vector? obj)     (mapv #(deeper % db-id) obj)
-          :else             obj)))
+  (letfn [(d-aux [obj]
+            (cond (db-ref? obj)   (resolve-db-id obj db-id)
+                  (map? obj)      (reduce-kv (fn [m k v] (assoc m k (d-aux v))) {} obj)
+                  (vector? obj)   (mapv d-aux obj)
+                  :else           obj))]
+    (d-aux obj)))
 
-;;; ToDo: Still broken (dbu/resolve-node "i=25345" :part5 {:depth 3}) fails.
-;;;       But there's more wrong: I'd like not to use i=? true anywhere. pull-reference assumes it.
+;;; ToDo: To test, find something that goes deeper. (dbu/resolve-node "i=25345" :part5 {:depth 3}) is the same as depth=1, I think.
 (defn resolve-node
   "Return the form resolved, removing properties in filter-set,
    a set of db attribute keys, for example, #{:db/id}."
   [i= db-id & {:keys [depth] :or {depth 1}}]
-  (letfn []
-     (loop [obj (pull-node-with-i= i= db-id)
-            d depth]
-       (if (zero? d)
-         (walk-final obj db-id)
-         (recur (deeper obj db-id)
-                (dec d))))))
+  (let [eid (get-node-eid i= db-id)]
+    (loop [obj (resolve-db-id {:db/id eid} db-id)
+           d depth]
+      (if (zero? d)
+        (walk-final obj db-id)
+        (recur (deeper obj db-id)
+               (dec d))))))

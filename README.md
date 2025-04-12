@@ -1,8 +1,8 @@
 # uaexp
-Exploratory software implementing an OPC UA server for use with CESMII architecture.
-The sofware is written Clojure and uses Datahike, a graph database with Datalog-native access.
-The code only represents about two-weeks of work, but it provides a basic DB with Part 5 in it.
-We'd like to implement graphQL and the the upcoming CESMII API.
+This exploratory software implements a server for OPC UA Part 5 for use with CESMII architecture.
+The sofware is written in Clojure and uses Datahike, a graph database that features hitchhiker trees and Datalog-native access.
+The code only represents about two-weeks of work, but it provides a basic DB with OPC UA Part 5 in it.
+We plan to implement graphQL and the upcoming CESMII API.
 
 The software is being developed as part of the NIST project [Human/AI Teaming for Manufacturing Digital Twins](https://www.nist.gov/programs-projects/humanmachine-teaming-manufacturing-digital-twins).
 Feel free to contact us if this work interests you!
@@ -11,18 +11,18 @@ Feel free to contact us if this work interests you!
    These instructions have not been thoroughly tested and are likely not complete. If you have problems, write an issue or email us (see the NIST project page above).
 
 ### Set up environment variables
-  * In your .bashrc file, define an environment variable  `export UAEXP_DB=/opt/uaexp` (or wherever you intend to store databases for the application).
+  * Define an environment variable to find the DB you will make. For example,  `export UAEXP_DB=/opt/uaexp`.
 
 ### The server
-  * Install install a Java JDK and [Clojure](https://clojure.org/).
+  * Install a Java JDK and [Clojure](https://clojure.org/).
   * The following assumes you are trying things from a shell script, but, of course, there is quite likely a nicer arrangement available in your IDE.
   * BTW, this has only been tested on linux.
-  * From a shell prompt in the src directory of this repository:
+  * From a shell prompt in the top-level directory of this repository:
 
  ```
  clj -M:dev:test
 
- ;;; Currently there will be some warnings from SLF4J, then the prompt. Type:
+ ;;; Currently there will be some warnings from SLF4J, then the prompt 'user>'. Type:
  (start)
 
 ;;; Something like the following should be printed:
@@ -48,7 +48,8 @@ EVENT/INFO  : - Logging configured:
 	#'ua.core/server
  nil
  ```
-Since you haven't created a DB yet, do the following to create one:
+Since you haven't created a DB yet, do the following to create one. 
+Next time you start, you'll only have to do the first line of this:
 
 ```
 (develop.repl/ns-setup!)          ; Provides namespace aliases.
@@ -84,7 +85,35 @@ LOG/INFO  : - Loaded 5822 nodes.
 Now look for something in the DB:
 
 ```
-(dbu/resolve-node "i=25345" :part5)
+(dbu/resolve-node "i=25345" :part5) 
+
+#:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
+       :type :UAReferenceType,
+       :references
+       [#:P5StdRefType{:subtype-of
+                       #:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part5/11.2",
+                              :type :UAReferenceType,
+                              :references
+                              [#:P5StdRefType{:subtype-of
+                                              #:Node{:symmetric? true,
+                                                     :documentation "https://reference.opcfoundation.org/v105/Core/docs/Part11/5.3.1",
+                                                     :type :UAReferenceType,
+                                                     :id "i=31",
+                                                     :category "Base Info Base Types",
+                                                     :display-name "References",
+                                                     :is-abstract? true,
+                                                     :browse-name "References"}}],
+                              :inverse-name "InverseHierarchicalReferences",
+                              :id "i=33",
+                              :category "Base Info Base Types",
+                              :display-name "HierarchicalReferences",
+                              :is-abstract? true,
+                              :browse-name "HierarchicalReferences"}}],
+       :inverse-name "HasPushTarget",
+       :id "i=25345",
+       :category "PubSub Model SKS Push",
+       :display-name "HasPushedSecurityGroup",
+       :browse-name "HasPushedSecurityGroup"}
 ```
 
 Of course, things will get more interesting once we have an API!
