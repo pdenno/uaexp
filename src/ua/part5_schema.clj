@@ -139,7 +139,7 @@
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/keyword}
 
    :Node/value
-   #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref}
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
 
    :Node/value-rank
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/number}
@@ -1211,11 +1211,54 @@
    :RolePerm/ref
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
+   ;; --------------------------- UATypes
+   :UATypes/ArrayDimensions
+   #:db{:cardinality :db.cardinality/many, :valueType :db.type/number}
 
-   ;; --------------------------- UAExtObj
-   :UAExtObj/hey! ; <==================================================================== ToDo.
-   #:db{:cardinality :db.cardinality/one, :valueType :db.type/keyword}
+   :UATypes/Body
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
 
+   :UATypes/DataType
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/Description
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/DisplayName
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/EUInformation
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/EnumValueType
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/ExtensionObject
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/Locale
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :UATypes/Name
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :UATypes/NamespaceUri
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :UATypes/Text
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :UATypes/TypeId
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
+
+   :UATypes/UnitId
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :UATypes/Value
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/number}
+
+   :UATypes/ValueRank
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/number}
 
    ;; --------------------------- box
    :box/boolean
@@ -1224,11 +1267,11 @@
    :box/date-time
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/instant}
 
+   :box/mix
+   #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref}
+
    :box/number
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/number}
-
-   :box/ref
-   #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref}
 
    :box/string
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
@@ -1358,9 +1401,11 @@
 (defn init-part5
   "Register DBs (currently just a part5-only DB), loading if DB does not exist and recreate-db? (above) is true."
   []
-  (register-db :part5 (db-cfg-map {:id :part5 :type :ua-base}))
-  (when @recreate-db?
-    (create-ua-db! {:nodeset (-> "data/part5/p5.edn" slurp edn/read-string)}))
+  (let [cfg (db-cfg-map {:id :part5 :type :ua-base})]
+    (register-db :part5 cfg)
+    (when @recreate-db?
+      (when (d/database-exists? cfg) (d/delete-database cfg))
+      (create-ua-db! {:nodeset (-> "data/part5/p5.edn" slurp edn/read-string)})))
   {:part5-config @(connect-atm :part5)})
 
 (defstate part5

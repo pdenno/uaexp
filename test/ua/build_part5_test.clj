@@ -4,16 +4,16 @@
    [clojure.edn        :as edn]
    [clojure.pprint     :refer [pprint]]
    [clojure.test       :refer [deftest is testing]]
-   [ua.core            :as core]
-   [develop.repl      :as dutil :refer [ns-setup!]]
-   [ua.db-util         :as dbu :refer [connect-atm]]
-   [ua.p5-cardinality  :as p5-card]
-   [jsonista.core      :as json]
-   [ua.xml-util        :as xu :refer [read-xml]]))
+   [develop.repl       :as dutil :refer [ns-setup!]]
+   [ua.build-part5     :as bp5]
+   [ua.xml-util        :as xu]
+   [jsonista.core      :as json]))
 
-(def p5-tags (atom #{}))
+(ns-setup!)
 
-(defn xml-tags
+(def ^:diag p5-tags (atom #{}))
+
+(defn ^:diag xml-tags
   "Return a set of the xml tags in the argument XML"
   [xml tag-atm]
   (letfn [(xt [obj]
@@ -43,7 +43,7 @@
 (deftest parse-parts
   (testing "Testing parse of various small components"
     (testing "Testing parse of UAVariable"
-      (is (= (core/rewrite-xml example-ua-variable)
+      (is (= (bp5/rewrite-xml example-ua-variable)
              {:UAbase/NodeId "ns=1;i=15740",
               :UAbase/BrowseName "1:OperationalMode",
               :UAbase/ParentNodeId "ns=1;i=15698",
@@ -59,14 +59,14 @@
 (def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5")))
 (def p5 (-> "data/part5/p5.edn" slurp edn/read-string))
 
-(def ref-types
+(def ^:diag ref-types
   "Ref types indexed by their Node/id."
   (->> p5
        :NodeSet/content
        (filterv #(= (:Node/type %) :UAReferenceType))
        #_(reduce (fn [m v] (assoc m (:Node/id v) v)) {})))
 
-(def node-by-id
+(def ^:diag node-by-id
   (->> p5
        :NodeSet/content
        (filter #(contains? % :Node/id))
@@ -74,13 +74,13 @@
 
 (def diag (atom nil))
 
-(def schema-info
+(def ^:diag schema-info
   "This is useful if only to see how messed up p5.edn is.
    It helps to plan building schema. Some of which are okay right here."
   (as-> "data/part5/p5.edn" ?d
     (slurp ?d)
     (edn/read-string ?d)
-    (core/learn-schema-basic ?d)
+    (bp5/learn-schema-basic ?d)
     (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
     (reduce-kv (fn [m k v]
                  (assoc m k (->> v
@@ -94,13 +94,13 @@
                {}
                ?d)))
 
-(def schema-info
+(def ^:diag schema-info
   "This is useful if only to see how messed up p5.edn is.
    It helps to plan building schema. Some of which are okay right here."
   (as-> "data/part5/p5.edn" ?d
     (slurp ?d)
     (edn/read-string ?d)
-    (core/learn-schema-basic ?d)
+    (bp5/learn-schema-basic ?d)
     (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
     (reduce-kv (fn [m k v]
                  (if (= k :other)
@@ -118,7 +118,7 @@
 
 
 ;;; (get-attrs (-> x5 :xml/content first :xml/content rest vec))
-(defn get-attrs
+(defn ^:diag get-attrs
   "Return a list of all the attribute names in the argument chunk of XML."
   [xml]
   (let [attrs-atm (atom #{})]
@@ -130,94 +130,19 @@
       (geta xml)
       (-> attrs-atm deref sort))))
 
-(def ua-attrs (-> "data/part3/table-mandatory-and-optional-attributes.txt" slurp  json/read-value))
+(def ^:diag ua-attrs (-> "data/part3/table-mandatory-and-optional-attributes.txt" slurp  json/read-value))
 
-(def foo
-  {"VariableType"
-   {"MandatoryAttributes"
-    ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "Value" "DataType" "ValueRank" "IsAbstract"],
-    "OptionalAttributes" ["Description" "ArrayDimensions" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
-   "View"
-   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "ContainsNoLoops" "EventNotifier"],
-    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
-   "DataType"
-   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "IsAbstract"],
-    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
-   "Object"
-   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "EventNotifier"],
-    "OptionalAttributes" ["Description"]},
-   "Method"
-   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "Executable" "UserExecutable"],
-    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
-   "Variable"
-   {"MandatoryAttributes"
-    ["NodeId"
-     "NodeClass"
-     "BrowseName"
-     "DisplayName"
-     "WriteMask"
-     "UserWriteMask"
-     "Value"
-     "DataType"
-     "ValueRank"
-     "AccessLevel"
-   "UserAccessLevel"
-     "Historizing"],
-    "OptionalAttributes"
-    ["Description"
-     "ArrayDimensions"
-     "MinimumSamplingInterval"
-     "AccessRestrictions"
-     "RolePermissions"
-     "UserRolePermissions"
-     "AccessLevelEx"
-     "WriteMaskEx"
-     "UserWriteMaskEx"]},
-   "ObjectType"
-   {"MandatoryAttributes" ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "IsAbstract"],
-    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]},
-   "ReferenceType"
-   {"MandatoryAttributes"
-    ["NodeId" "NodeClass" "BrowseName" "DisplayName" "WriteMask" "UserWriteMask" "IsAbstract" "Symmetric" "InverseName"],
-    "OptionalAttributes" ["Description" "RolePermissions" "UserRolePermissions" "AccessRestrictions"]}})
-
-(defn cng-attr [obj]
-  (cond (map? obj) (reduce-kv (fn [m k v] (cond (= k "MandatoryAttributes") (assoc m :mandatory (cng-attr v))
-                                                (= k "OptionalAttributes") (assoc m :optional (cng-attr v))
-                                                :else (assoc m k (cng-attr v))))
-                              {} obj)
-        (vector? obj)  (->> obj (mapv keyword) set)
-        :else obj))
-
-
-(defn tags&attrs
-  "Return a map of all tags and elements."
-  [xml]
-  (let [res (atom {:tags #{} :attrs #{}})]
-    (letfn [(t&a [x]
-              (cond (map? x)       (doseq [[k v] x]
-                                     (cond (= :xml/tag   k)  (swap! res #(update % :tags  conj v))
-                                           (= :xml/attrs k)  (swap! res #(update % :attrs into (keys v))))
-                                     (t&a v))
-                    (vector? x)    (doseq [e x] (t&a e))))]
-      (t&a xml))
-    (-> res deref (update-vals #(->> % (sort-by name) vec)))))
-
-
-
-(def tiny-xml '[#:xml{:tag :p5/UANodeSet,
-                      :attrs {:LastModified "2021-05-20T00:00:00Z"},
-                      :content
-                      [#:xml{:tag :p5/Aliases,
+(def ^:diag tiny-xml '[#:xml{:tag :p5/UANodeSet,
+                             :attrs {:LastModified "2021-05-20T00:00:00Z"},
                              :content
-                             [#:xml{:tag :p5/Alias, :attrs {:Alias "Boolean"}, :content "i=1"}
-                              #:xml{:tag :p5/Alias, :attrs {:Alias "HasDescription"}, :content "i=39"}]}]}])
+                             [#:xml{:tag :p5/Aliases,
+                                    :content
+                                    [#:xml{:tag :p5/Alias, :attrs {:Alias "Boolean"}, :content "i=1"}
+                                     #:xml{:tag :p5/Alias, :attrs {:Alias "HasDescription"}, :content "i=39"}]}]}])
 
-;;; ToDo: After I demonstrate the simplest parsing working, consider transforming everything to tagged elements.
-;;;       The problem is the same UA concept can be serialized either way in some cases.
-(defn tryme []
-  (reset! core/parse-depth 0)
-  (let [p5 (core/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet)
+(defn ^:diag toplevel-make-p5-edn! []
+  (reset! bp5/parse-depth 0)
+  (let [p5 (bp5/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet)
         s (with-out-str (pprint p5))]
     (spit "data/part5/p5.edn" s)))
 
@@ -228,8 +153,7 @@
        (.getBytes encoding)
        (java.io.ByteArrayInputStream.))))
 
-
-(defn parse-small
+(defn ^:diag parse-small
   "Wrap a string of XML in the namespace and try to parse it."
   [s]
   (let [small (str
@@ -246,7 +170,7 @@
                       vector)}))
 
 ;;; ----------------------------------
-(def ref-attrs
+(def ^:diag ref-attrs
   "A set of the attributes found in Part 5 ReferenceTypes."
   (let [slots (atom #{})]
     (doseq [x (->> p5 :NodeSet/content (filter #(= (:Node/type %) :UAReferenceType)))]
@@ -264,3 +188,45 @@
                  (:Node/inverse-name ref-typ)   (assoc :inverse-name (:Node/inverse-name ref-typ))
                  (:Node/inverse-name ref-typ)   (assoc :inverse-cardinality :db-cardinality/db-*))))
        (sort-by :name)))
+
+;;; ----------- Stuff for developing bp5's ExtensionObject parsing -------------------------
+(def ^:diag example
+  #:xml{:tag :UATypes/ExtensionObject,
+        :content
+        [#:xml{:tag :UATypes/TypeId,
+               :content
+               [#:xml{:tag
+                      :UATypes/Identifier,
+                      :content "i=7616"}]}
+         #:xml{:tag :UATypes/Body,
+               :content
+               [#:xml{:tag
+                      :UATypes/EnumValueType,
+                      :content
+                      [#:xml{:tag
+                             :UATypes/Value,
+                             :content "1"}
+                       #:xml{:tag
+                             :UATypes/DisplayName,
+                             :content
+                             [#:xml{:tag
+                                    :UATypes/Text,
+                                    :content
+                                    "Mandatory"}]}
+                       #:xml{:tag
+                             :UATypes/Description,
+                             :content
+                             [#:xml{:tag
+                                    :UATypes/Text,
+                                    :content
+                                    "The BrowseName must appear in all instances of the type."}]}]}]}]})
+
+(def ^:diag extobj-tags (atom #{}))
+(defn ^:admin collect-exobj-tags ; A throw-away
+  [obj]
+  (letfn [(cet-aux [obj]
+            (cond (and (map? obj) (contains? obj :xml/tag))      (do (swap! extobj-tags conj (:xml/tag obj))
+                                                                     (doseq [[k v] obj] (when-not (= k :xml/tag) (cet-aux v))))
+                  (map? obj)                                     (doseq [[k v] obj] (when-not (= k :xml/tag) (cet-aux v)))
+                  (vector? obj)                                  (doseq [v obj] (cet-aux v))))]
+    (cet-aux obj)))

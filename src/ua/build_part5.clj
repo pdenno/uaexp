@@ -6,6 +6,7 @@
    [clojure.instant             :as instant]
    [clojure.pprint              :refer [cl-format pprint]]
    [clojure.set                 :as set]
+   [clojure.string]
    [mount.core                  :as mount :refer [defstate]]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.p5-cardinality           :as p5-card]
@@ -71,13 +72,8 @@
 
 (defmulti rewrite-xml #'rewrite-xml-dispatch)
 
-(defn call-this [arg]
-  (reset! diag arg)
-  (throw (ex-info "call-this" {:arg arg})))
-
 (defmethod rewrite-xml nil [obj]
   (log! :warn (str "No method for obj = " obj))
-  (call-this {:obj obj})
   :failure/rewrite-xml-nil-method)
 
 (def nyi "nyi = Not yet implemented" (atom #{}))
@@ -194,12 +190,22 @@
     (merge {:Node/type (-> tag name keyword)}
            (reduce (fn [res c] (merge res (rewrite-xml c))) {} content))))
 
+(def ^:dynamic *array-dimensions*
+  "This is needed to deal with null <ArrayDimension /> Elements in UAVariable.  The actual value should be in an ArrayDimensions XML object.
+   The value is comma-separated non-negative integers.
+   The ArrayDimensions are in the UATypes XML namespace."
+  nil)
+
 (defparse :p5/UAVariable
-  "This just merges small pieces."
+  "This merges small pieces, but also deals with null <ArrayDimensions />."
   [xmap]
-  (let [{:xml/keys [tag content]} (xml-attrs-as-content xmap)]
-    (merge {:Node/type (-> tag name keyword)}
-           (reduce (fn [res c] (merge res (rewrite-xml c))) {} content))))
+  (binding [*array-dimensions*
+            (when-let [s (-> xmap :xml/attrs :ArrayDimensions)]
+              (->> (clojure.string/split s #"\,")
+                   (mapv read-string)))]
+    (let [{:xml/keys [tag content]} (xml-attrs-as-content xmap)]
+      (merge {:Node/type (-> tag name keyword)}
+             (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)))))
 
 (defparse :p5/UAVariableType
   "This just merges small pieces."
@@ -227,7 +233,7 @@
         rtype (or (p5-card/lookup-ref-type ReferenceType forward?)
                   (re-matches #"^i=\d+$" (str ReferenceType)))]
     (if rtype
-      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/ref rtype}   (keyword "P5StdRefType" (csk/->kebab-case rtype)))
+      {(if (re-matches #"^i=\d+$" (str rtype))   {:IMPL/ref rtype}   (keyword "P5StdRefType" (csk/->kebab-case rtype))) ; ToDo: namespace #"^i=\d+$"
        (if (re-matches #"^i=\d+$" (str content)) {:IMPL/ref content} content)}
       (throw (ex-info "No such ReferenceType: " {:xmap xmap})))))
 
@@ -301,74 +307,168 @@
 (defparse :p5/Value
   "Returns the map with one key, :Node/value.
    AFAICS, these have a single child and no attrs. Value is boxed."
-  [{:xml/keys [content attrs] :as _xmap}]
+  [{:xml/keys [content attrs] :as xmap}]
   (when (or (not= 1 (count content))
             (not-empty attrs))
     (log! :warn "p5/Value not as expected."))
   (letfn [(box [v]
-            (cond (map? v)      {:box/ref v}
-                  (vector? v)   (mapv box v)
+            (cond (map? v)      v
+                  (vector? v)   {:box/mix (mapv box v)}
                   (string? v)   {:box/string v}
                   (number? v)   {:box/number v}
                   (boolean? v)  {:box/boolean v}
                   (inst? v)     {:box/date-time v}
                   :else         (do (log! :warn (str "How do I box this?: " v))
                                     (reset! diag v)
-                                    (throw (ex-info "box me" {:xmap _xmap})))))]
+                                    (throw (ex-info "box me" {:xmap xmap})))))]
     {:Node/value (-> content first rewrite-xml box)}))
 
 ;;; --------------------------- ExtensionObject and other UA types ------------------------------------------------------------------
-;;; I think the best thing to do here is to try to parse it and if it fails, store it as :UAExtObj/object-string (or some such thing).
-(def ext-keys (atom #{}))
+;;; ToDo: I think the best thing to do with ExtensionObjects is to try to parse it and if it fails, store something related as
+;;; :UAExtObj/object-string (or some such thing). But, of course, for the time being (Part 5 only) everything parses.
+;;; (BTW, currently I don't use :UAExtObj as a namespace. All that stuff lands in UATypes, as it appears to be in Part 5 XML.
 
 (defparse :UATypes/ExtensionObject
   "Return an object network in the UAExtObj namespace.
    Extension objects, of course, can have anything in them. I have in mind parsing them to nested map structures, stringified,
    if they vary from what I've seen in Part 5 XML." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
-  [xmap]
-  (letfn [(ekeys [obj] (cond (map? obj)     (doseq [[k v] obj] (swap! ext-keys conj k) (ekeys v))
-                             (vector? obj)  (doseq [x obj] (ekeys x))))]
-    (-> xmap xml-attrs-as-content ekeys))
-  {:UAExtObj/hey! :extension-obj-nyi}) ; <==================================================================
+  [{:xml/keys [content] :as _xmap}]
+  {:UATypes/ExtensionObject (reduce (fn [res c]
+                                      (merge res (rewrite-xml c))) {} content)})
+
+;;; Regarding Part5, the following (up to :UATypes/Boolean) are only found in ExtensionObjects. It looks like none have XML attrs.
+(defparse :UATypes/Argument
+  "Has structured content."
+  [{:xml/keys [content]}]
+  (reduce (fn [res c] (merge res (rewrite-xml c))) {} content))
+
+(defparse :UATypes/ArrayDimensions
+  "This one is different! In the XML of Part 5 at least, it is always a null element.
+   However, in Part 5 I only see it used in UAVariablee, which has ArrayDimensions as an XML attribute.
+   Because of this, I use a dynamic variable and check here that it is a number."
+  [{:xml/keys [_content]}]
+  (if (and (vector? *array-dimensions*) (every? int? *array-dimensions*))
+    {:UATypes/ArrayDimensions *array-dimensions*}
+    (throw (ex-info "Expected ArrayDimensions XML attribute in a UAVariable." {:dims *array-dimensions*}))))
+
+(defparse :UATypes/Body
+  "Has structured content."
+  [{:xml/keys [content]}]
+  {:UATypes/Body (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)})
+
+(defparse :UATypes/DataType,
+  "Has structured content that is (always?) UATypes/Identifier?"
+  [{:xml/keys [content]}]
+  (assert (== 1 (count content)))
+  {:UATypes/DataType (-> content first rewrite-xml)})
+
+(defparse :UATypes/Description
+  "Has structured content that is a UATypes/Text and possibly UATypes/Locale so we give it (and the children) structure."
+  [{:xml/keys [content] :as _xmap}]
+  {:UATypes/Description (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)})
+
+(defparse :UATypes/DisplayName
+  "Has structured content that can contains UATypes/Locale and UATypes/Text."
+  [{:xml/keys [content] :as _xmap}]
+  {:UATypes/DisplayName (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)})
+
+(defparse :UATypes/EUInformation
+  "Has structured content."
+  [{:xml/keys [content]}]
+  {:UATypes/EUInformation (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)})
+
+(defparse :UATypes/EnumValueType
+  "Has structured content."
+  [{:xml/keys [content]}]
+  {:UATypes/EnumValueType (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)})
+
+(defparse :UATypes/Identifier
+  "Content is an i=."
+  [{:xml/keys [content]}]
+  {:IMPL/ref content})
+
+(defparse :UATypes/Locale
+  "This is often used with :UATypes/Text, so we give them both structure."
+  [{:xml/keys [content]}]
+  {:UATypes/Locale content})
+
+(defparse :UATypes/Name
+  "A string"
+  [{:xml/keys [content]}]
+  {:UATypes/Name content})
+
+(defparse :UATypes/NamespaceUri
+  "A string"
+  [{:xml/keys [content]}]
+  {:UATypes/NamespaceUri content})
+
+(defparse :UATypes/Text
+  "This is often used with :UATypes/Locale, thus we give it structure."
+  [{:xml/keys [content] :as _xmap}]
+  (reset! diag _xmap)
+  {:UATypes/Text (if (not-empty content) content "")})
+
+(defparse :UATypes/TypeId
+  "Has structured content which usually a UATypes/Identifier (for which I return {:IMPL/ref}."
+  [{:xml/keys [content]}]
+  {:UATypes/TypeId (reduce (fn [res c] (merge res (rewrite-xml c))) {} content)})
+
+(defparse :UATypes/UnitId
+  "A string"
+  [{:xml/keys [content]}]
+  {:UATypes/UnitId content})
+
+(defparse :UATypes/Value
+  "A string, which in Part 5 is always a number." ; ToDo Check Part 3 for what this could be. Maybe box it.
+  [{:xml/keys [content]}]
+  {:UATypes/Value (edn/read-string content)})
+
+(defparse :UATypes/ValueRank
+  "A string, which in Part 5 is always a number."
+  [{:xml/keys [content]}]
+  {:UATypes/ValueRank (edn/read-string content)})
 
 ;;; ToDo: Needs investigation. I'm not wrapping any of these. I'm not defining :UATypes/{String, DateTime, Boolean, Int32, etc.}
 ;;;       At least :UATypes/LocalizedText can use a reader...when I see the right kind of example...;^)
-(defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string #_boolean))
+;;; Only some of the following are found in ExtensionObjects of Part 5. Some exist because they are used elsewhere in Part5. (Trivia?)
+;;; The ones found in ExtensionObjects are DataType, Locale, UInt32, and Text.
+(defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string))
 (defparse :UATypes/ByteString    "doc" [{:xml/keys [content]}]  {:P6ByteString/str content})    ; ToDo Rethink these.
 (defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
 (defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
-(defparse :UATypes/Locale        "doc" [{:xml/keys [content]}]  content)
 (defparse :UATypes/String        "doc" [{:xml/keys [content]}]  (if content content ""))
-(defparse :UATypes/Text          "doc" [{:xml/keys [content]}]  (if content content ""))
 (defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
 
-(defparse :UATypes/LocalizedText "doc" [{:xml/keys [content]}]
-  (when-not (every?  #(#{:UATypes/Text :UATypes/Locale} %) (map :xml/tag content))
-    (log! :warn (str "Unexpected Localized Text" content))
-    (reset! diag content)
-    (throw (ex-info "" {})))
-  (let [{:UATypes/keys [Text Locale]} (group-by :xml/tag content)]
-    (cond-> {:P3LocalizedText/str (rewrite-xml Text :UATypes/Text)}
-      Locale (assoc :P3LocalizedText/locale (rewrite-xml Locale :UATypes/Text)))))
+(defparse :UATypes/LocalizedText "doc" [{:xml/keys [content] :as _xmap}]
+  (when-not (and (every?  #(#{:UATypes/Text :UATypes/Locale} %) (map :xml/tag content))
+                 (<= 2 (-> content first count)))
+    (throw (ex-info "Unexpected UATypes/LocalizedText" {:xmap _xmap})))
+  ;; Other things need :UATypes/Text and :UATypes/Locale as structure; this doesn't.
+  (let [Text   (some #(when (= :UATypes/Text   (:xml/tag %)) %) content)
+        Locale (some #(when (= :UATypes/Locale (:xml/tag %)) %) content)
+        text    (-> Text  (rewrite-xml :UATypes/Text) :UATypes/Text)
+        locale  (when Locale (-> Locale (rewrite-xml :UATypes/Locale) :UATypes/Locale))]
+    (cond-> {:P3LocalizedText/str text}
+      locale (assoc :P3LocalizedText/locale locale))))
 
 ;;; --------------------------- Lists ---------------------------------------------------------------
 (defparse :UATypes/ListOfExtensionObject
-  "Whether containers are required for any lists is not yet clear."
+  "No containers for these."
   [xmap]
   (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/ExtensionObject))))
 
 (defparse :UATypes/ListOfInt32
-  "Whether containers are required for any lists is not yet clear."
+  "No containers for these."
   [xmap]
   (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/Int32))))
 
 (defparse :UATypes/ListOfLocalizedText
-  "Whether containers are required for any lists is not yet clear."
+  "No containers for these."
   [xmap]
   (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/LocalizedText))))
 
 (defparse :UATypes/ListOfString
-  "Whether containers are required for any lists is not yet clear."
+  "No containers for these."
   [xmap]
   (->> xmap :xml/content (mapv #(rewrite-xml % :UATypes/String))))
 
@@ -495,7 +595,7 @@
 
 (def expected-ns
   "These are keys returned by make-schema-info that are expected. schema is or can be specified for them."
-  #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5StdRefType" "P6ByteString" "RolePerm" "UAExtObj" "box" "Field"})
+  #{"Alias" "Definition" "Model" "Node" "NodeSet" "P3LocalizedText" "P5StdRefType" "P6ByteString" "RolePerm" "UATypes" "box" "Field"})
 
 (def schema-mods
   "Modifications to computed schema, for example which ones are keys."

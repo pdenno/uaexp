@@ -22,7 +22,7 @@ Feel free to contact us if this work interests you!
  ```
  clj -M:dev
 
- ;;; Currently there will be some warnings from SLF4J, then the prompt 'user>'. Type:
+;;; [There will be some warnings about SLF4J....] then at the prompt 'user>'. Type:
  (start)
 
 ;;; Something like the following should be printed:
@@ -48,7 +48,7 @@ EVENT/INFO  : - Logging configured:
 	#'ua.core/server
  nil
  ```
-Since you haven't created a DB yet, do the following to create one. 
+Since you haven't created a DB yet, do the following to create one.
 Next time you start, you'll only have to do the first line of this:
 
 ```
@@ -80,6 +80,8 @@ LOG/INFO  : - IMPL/ref in predicate symbol position is :P5StdRefType/has-data-se
 LOG/INFO  : - IMPL/ref in predicate symbol position is :P5StdRefType/has-lower-layer-interface
 LOG/INFO  : - IMPL/ref in predicate symbol position is :P5StdRefType/has-lower-layer-interface
 LOG/INFO  : - Loaded 5822 nodes.
+LOG/INFO  : - Loaded 5822 nodes.
+{:part5-config #datahike/DB {:max-tx 536871089 :max-eid 30964}}
 ```
 
 Now look for something in the DB:
@@ -88,32 +90,32 @@ Now look for something in the DB:
 (pprint (dbu/resolve-node "i=25345" :part5))
 
 #:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
-       :type :UAReferenceType,
-       :references
-       [#:P5StdRefType{:subtype-of
-                       #:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part5/11.2",
-                              :type :UAReferenceType,
-                              :references
-                              [#:P5StdRefType{:subtype-of
-                                              #:Node{:symmetric? true,
-                                                     :documentation "https://reference.opcfoundation.org/v105/Core/docs/Part11/5.3.1",
-                                                     :type :UAReferenceType,
-                                                     :id "i=31",
-                                                     :category "Base Info Base Types",
-                                                     :display-name "References",
-                                                     :is-abstract? true,
-                                                     :browse-name "References"}}],
-                              :inverse-name "InverseHierarchicalReferences",
-                              :id "i=33",
-                              :category "Base Info Base Types",
-                              :display-name "HierarchicalReferences",
-                              :is-abstract? true,
-                              :browse-name "HierarchicalReferences"}}],
-       :inverse-name "HasPushTarget",
-       :id "i=25345",
-       :category "PubSub Model SKS Push",
-       :display-name "HasPushedSecurityGroup",
-       :browse-name "HasPushedSecurityGroup"}
+	   :type :UAReferenceType,
+	   :references
+	   [#:P5StdRefType{:subtype-of
+					   #:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part5/11.2",
+							  :type :UAReferenceType,
+							  :references
+							  [#:P5StdRefType{:subtype-of
+											  #:Node{:symmetric? true,
+													 :documentation "https://reference.opcfoundation.org/v105/Core/docs/Part11/5.3.1",
+													 :type :UAReferenceType,
+													 :id "i=31",
+													 :category "Base Info Base Types",
+													 :display-name "References",
+													 :is-abstract? true,
+													 :browse-name "References"}}],
+							  :inverse-name "InverseHierarchicalReferences",
+							  :id "i=33",
+							  :category "Base Info Base Types",
+							  :display-name "HierarchicalReferences",
+							  :is-abstract? true,
+							  :browse-name "HierarchicalReferences"}}],
+	   :inverse-name "HasPushTarget",
+	   :id "i=25345",
+	   :category "PubSub Model SKS Push",
+	   :display-name "HasPushedSecurityGroup",
+	   :browse-name "HasPushedSecurityGroup"}
 ```
 
 Of course, things will get more interesting once we have an API!
