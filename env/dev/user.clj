@@ -3,7 +3,7 @@
    This file isn't used in cljs and is a problem for shadow-cljs without the
    :clj compiler directives."
   (:require
-   [clojure.pprint]
+   [clojure.pprint :refer [pprint]] ; for README.md, which uses it.
    [clojure.string]
    [clojure.spec.alpha :as s]
    [clojure.tools.namespace.repl :as tools-ns :refer [set-refresh-dirs]]

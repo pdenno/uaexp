@@ -85,7 +85,7 @@ LOG/INFO  : - Loaded 5822 nodes.
 Now look for something in the DB:
 
 ```
-(clojure.pprint/pprint (dbu/resolve-node "i=25345" :part5))
+(pprint (dbu/resolve-node "i=25345" :part5))
 
 #:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
        :type :UAReferenceType,
