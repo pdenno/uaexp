@@ -11,28 +11,38 @@
              (find-ns ns-sym))
     (alias al ns-sym)))
 
+(def alias-map
+  "Use this to setup useful aliases for working in this NS."
+  '{io     clojure.java.io
+    s      clojure.spec.alpha
+    edn    clojure.edn
+    str    clojure.string
+    d      datahike.api
+    dp     datahike.pull-api
+    mount  mount.core
+    bp5    ua.build-part5
+    core   ua.core
+    dbu    ua.db-util
+    p5s    ua.part5-schema
+    pro    ua.profiles
+    pu     ua.putil
+    util   ua.util
+    xu     ua.xml-util})
+
 (defn ^:diag ns-setup!
   "Use this to setup useful aliases for working in this NS."
   []
-  (reset! alias? (-> (ns-aliases *ns*) keys set))
-  (safe-alias 'io     'clojure.java.io)
-  (safe-alias 's      'clojure.spec.alpha)
-  (safe-alias 'edn    'clojure.edn)
-  (safe-alias 'io     'clojure.java.io)
-  (safe-alias 'str    'clojure.string)
-  (safe-alias 'd      'datahike.api)
-  (safe-alias 'dp     'datahike.pull-api)
-  (safe-alias 'json   'jsonista.core)
-  (safe-alias 'mount  'mount.core)
-  (safe-alias 'p      'promesa.core)
-  (safe-alias 'px     'promesa.exec)
-  (safe-alias 'bp5    'ua.build-part5)
-  (safe-alias 'core   'ua.core)
-  (safe-alias 'dbu    'ua.db-util)
-  (safe-alias 'p5s    'ua.part5-schema)
-  (safe-alias 'util   'ua.util)
-  (safe-alias 'xu     'ua.xml-util)
-  (safe-alias 'openai 'wkok.openai-clojure.api))
+  ;(reset! alias? (-> (ns-aliases *ns*) keys set))
+  (doseq [[a nspace] alias-map]
+    (safe-alias a nspace)))
+
+(defn ^:diag ns-fix-setup!
+  "Remove all the namespace aliases from the argument namespace. Then you can recompile it."
+  [ns-sym]
+  (when-let [tns (find-ns ns-sym)]
+    (binding [*ns* tns]
+      (doseq [a (keys alias-map)]
+        (ns-unalias *ns* a)))))
 
 (defn clean-form
   "Replace some namespaces with aliases"

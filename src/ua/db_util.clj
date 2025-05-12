@@ -31,7 +31,7 @@
 (defn db-cfg-map
   "Return a datahike configuration map for argument database (or its base).
      id   - a keyword uniquely identifying the DB in the scope of DBs.
-     type - the type of DB configuration being make: (:project, :system, or :him, so far)"
+     type - the type of DB configuration being make: (:ua-base and :cesmii-profile, so far)"
   [{:keys [id in-mem?]}]
   (let [base-dir (or (-> (System/getenv) (get "UAEXP_DB"))
                      (throw (ex-info "Set the environment variable UAEXP_DB to the directory containing UA databases." {})))
@@ -54,11 +54,14 @@
       (throw (ex-info "No such DB" {:key k})))))
 
 (defn datahike-schema
-  "Create a Datahike-compatible schema from schema+ style schema with notes such as those in uaexp namespace removed."
+  "Create a Datahike-compatible schema from schema+ style schema with notes such as those in uaexp namespace removed.
+   This drops schema from the ignore namespace."
   [schema]
   (reduce-kv (fn [r k v]
-               (conj r (-> (reduce-kv (fn [m kk vv] (if (= (namespace kk) "db") (assoc m kk vv) m)) {} v)
-                           (assoc :db/ident k))))
+               (if (= (namespace k) "ignore")
+                 r
+                 (conj r (-> (reduce-kv (fn [m kk vv] (if (= (namespace kk) "db") (assoc m kk vv) m)) {} v)
+                             (assoc :db/ident k)))))
              []
              schema))
 

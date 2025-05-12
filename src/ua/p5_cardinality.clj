@@ -2,7 +2,7 @@
   "Information about Part 5 references.")
 
 ;;; ToDo:
-;;;   - Because we really aren't certain we have reasonable cardinality for everything here. We might want to log changes to a properties that have cardinality one for a while!
+;;;   - Because we aren't certain we have reasonable cardinality for everything here. We might want to log changes to a properties that have cardinality one for a while!
 ;;;   - Similarly, when we learn schema in node sets, we ought to check whether what is inferred differs from what we have here.
 
 (def card-table-vec

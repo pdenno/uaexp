@@ -7,6 +7,7 @@
    [clojure.string]
    [clojure.spec.alpha :as s]
    [clojure.tools.namespace.repl :as tools-ns :refer [set-refresh-dirs]]
+   [develop.repl                :refer [ns-setup!]]
    [expound.alpha :as expound]
    [mount.core :as mount]
    [lambdaisland.classpath.watch-deps :as watch-deps]      ; hot loading for deps.
