@@ -9,7 +9,7 @@
    [mount.core           :as mount :refer [defstate]]
    #?@(:clj [[taoensso.telemere.tools-logging :as tel-log]])
    [taoensso.telemere           :as tel :refer [log!]]
-   [taoensso.timbre                 :as timbre])) ; To stop pesky datahike :debug messages.
+   [taoensso.timbre             :as timbre])) ; To stop pesky datahike :debug messages.
 
 #?(:clj
    (defn pr-bling [x] x)
@@ -71,6 +71,16 @@
   "Return a string of n spaces."
   [n]
   (reduce (fn [s _] (str s " ")) "" (range n)))
+
+;;; ToDo: Consider cl-format ~S.
+(defn elide
+  "Return a string no longer than n where the last 3 is ellipsis '...' if the string is > n long."
+  [obj n]
+  (let [s (str obj)
+        cnt (count s)]
+    (cond (> n cnt)   s
+          (< n 3)     ""
+          :else (str (subs s 0 (- n 3)) "..."))))
 
 ;;; -------------- Starting and stopping ----------------------
 (defn init-util []

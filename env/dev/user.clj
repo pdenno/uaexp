@@ -3,10 +3,11 @@
    This file isn't used in cljs and is a problem for shadow-cljs without the
    :clj compiler directives."
   (:require
-   [clojure.pprint]
+   [clojure.pprint :refer [pprint]] ; for README.md, which uses it.
    [clojure.string]
    [clojure.spec.alpha :as s]
-   [clojure.tools.namespace.repl :as tools-ns :refer [disable-reload! refresh clear set-refresh-dirs]]
+   [clojure.tools.namespace.repl :as tools-ns :refer [set-refresh-dirs]]
+   [develop.repl                :refer [ns-setup!]]
    [expound.alpha :as expound]
    [mount.core :as mount]
    [lambdaisland.classpath.watch-deps :as watch-deps]      ; hot loading for deps.
@@ -22,7 +23,7 @@
 (add-tap (bound-fn* clojure.pprint/pprint))
 (set-refresh-dirs "src/server/scheduling_tbd" #_"test/scheduling_tbd")  ; Put here as many as you need. test messes with ns-setup!
 
-(defn start
+(defn ^:admin start
   "Start the web server"
   []
   (let [res (mount/start)
@@ -34,7 +35,7 @@
   []
   (mount/stop))
 
-(defn restart
+(defn ^:admin restart
   "Stop, reload code, and restart the server. If there is a compile error, use:
 
   ```
