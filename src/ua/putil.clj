@@ -1,12 +1,13 @@
 (ns ua.putil
   "Utililties for working with profiles"
   (:require
+   [clojure.edn                 :as edn]
    [clojure.pprint              :refer [cl-format pprint]]
    [clojure.set                 :as set]
    [datahike.api                :as d]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.db-util                  :as dbu :refer [connect-atm datahike-schema db-cfg-map register-db]]
-   [ua.part5-schema             :refer [part5-schema part5-schema+]]
+   [ua.part5-schema             :refer [part5-schema+]]
    [ua.xml-util                 :as xu]))
 
 (def ^:diag diag (atom false))
@@ -167,9 +168,10 @@
     (spit out-file s)))
 
 (defn merge-warn
-  "Merge the argument schema+ with part5-schema+, warning where there are collisions."
+  "Merge the argument schema, which could be {} it with part5-schema+, warning where there are collisions. Return a "
   [schema+]
-  (let [collisions (set/intersection (-> schema+ keys set) (-> part5-schema+ keys set))]
+  (let [part5-schema+ (-> "data/part5/part5-schema+.edn" slurp edn/read-string)
+        collisions (set/intersection (-> schema+ keys set) (-> part5-schema+ keys set))]
     (when (not-empty collisions)
       (log! :warn (str "The following are defined in Part5; their redefinition in the nodeset is being ignored: " collisions)))
     (-> schema+ (merge part5-schema+) datahike-schema)))
@@ -256,13 +258,14 @@
           (recur others))))
     (log! :info (str "Loaded " @cnt " nodes."))))
 
-(defn jpcreate-ua-db!
-  "Create a part5 database from an EDN file. Every UA DB would start with this.
+(defn create-ua-db!
+  "Create a part5 database from a nodeset EDN file. Every UA DB would start with this.
    If schema is provided it is merged with the part5 schema."
-  [& {:keys [schema nodeset db-id] :or {schema {} db-id :part5}}]
+  [& {:keys [schema+ nodeset db-id]}]
+  (assert (keyword? db-id))
   (log! :info (str "Creating a Part 5-based database named " db-id "."))
   (if (get (System/getenv) "UAEXP_DB")
-    (let [schema (if schema (merge-warn schema) part5-schema)
+    (let [schema (merge-warn schema+)
           cfg (db-cfg-map {:id db-id})]
       (when (d/database-exists? cfg) (d/delete-database cfg))
       (d/create-database cfg)

@@ -10,10 +10,8 @@
    [ua.db-util                  :as dbu :refer [db-cfg-map register-db]]
    [ua.putil                    :as pu :refer [defparse learn-schema-basic write-nodeset-edn! create-ua-db!]]))
 
-;;; ToDo: Decide whether nodesets need to include all of Part 5 or only the parts they use.
-;;;       Currently (having only dabbled in Asset Management Basics (AMB) I haven't merged in P5.
-
-;;; ToDo: :db/cardinality is nil on relationships.
+;;; ToDo: :db/cardinality is nil on AMB relationships. <==========================================================================
+;;; Add the p5 nodeset to every other profile         <==========================================================================
 
 (def ^:diag diag (atom nil))
 
@@ -21,11 +19,9 @@
 
 (declare make-schema+)
 
-#_(pro/make-profile-db! {:schema-key :p5
-                         :xml-file         "data/part5/OPC_UA_Core_Model_2515947497.xml"
-                         :nodeset-edn-file "data/part5/p5-nodeset.edn"
-                         :schema+-file     "data/part5/p5-schema+.edn"
-                         :create-db? false})
+#_(pro/make-profile-db! {:schema-key :p5 ; <================================================ Start here. This doesn't work.
+                         :nodeset-edn-file "data/part5/p5-nodeset.edn" ; Since we didn't provide an xml file, this must already exist. <=== Move p5-nodeset.edn and p5-schema+ to resources.
+                         :create-db? true})
 
 #_(pro/make-profile-db! {:schema-key :amb
                          :xml-file         "data/profiles/amb/AssetManagementBasics.xml"
@@ -38,17 +34,21 @@
      :nodeset-edn-file - a file of the data of the nodeset, loaded into the DB.
      :schema+-file - a file of schema in schema+ format learned from the nodeset.
      :schema-key - a keyword used to register the db, and for use with connect-atm.
-     :create-db? - whether to create the db or just stop at creating the schema+ file. (Defaults to true.)"
-  [{:keys [xml-file nodeset-edn-file schema+-file schema-key create-db?]
-    :or {create-db? true}}]
+     :create-db? - whether to create the db or just stop at creating the schema+ file. (Defaults to true.)
+     :make-schema+-file? - whether to make the schema-file with the name or use the file at the name." 
+  [{:keys [schema-key xml-file nodeset-edn-file schema+-file]}]
+  (assert (keyword? schema-key))
+  (when-not xml-file
+    "check-that nodeset-edn-file is supplied and exists.") ;<================================================================== Start here. Likewise for schema+ file.
   (reset! ignored-nodes [])
-  (write-nodeset-edn! xml-file nodeset-edn-file)
-  (make-schema+ schema-key nodeset-edn-file schema+-file)
-  (when create-db?
-    (let [cfg (db-cfg-map {:id schema-key :type :cesmii-profile})]
-      (register-db :scheam-key cfg)
-      (when (d/database-exists? cfg) (d/delete-database cfg))
-      (create-ua-db! {:nodeset (-> nodeset-edn-file slurp edn/read-string)}))))
+  (when xml-file
+    (write-nodeset-edn! xml-file nodeset-edn-file))
+  (when schema+-file
+    (make-schema+ schema-key nodeset-edn-file schema+-file))
+  (pu/create-ua-db!
+   :schema+ (if schema+-file (-> schema+-file slurp edn/read-string) {})
+   :nodeset nodeset-edn-file
+   :db-id schema-key))
 
 ;;; --------- These were encountered in nodesets other than Part 5. (Just AMB so far.)
 (defparse :p5/NamespaceUris

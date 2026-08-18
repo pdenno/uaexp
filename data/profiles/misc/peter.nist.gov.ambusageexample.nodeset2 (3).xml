@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UANodeSet xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" LastModified="2025-03-24T11:47:33.7492387Z" xmlns="http://opcfoundation.org/UA/2011/03/UANodeSet.xsd">
+  <NamespaceUris>
+    <Uri>http://peter.nist.gov/AMBusageExample</Uri>
+  </NamespaceUris>
+  <Models>
+    <Model ModelUri="http://peter.nist.gov/AMBusageExample" Version="0.1" PublicationDate="2025-03-21T00:00:00Z">
+      <RequiredModel ModelUri="http://opcfoundation.org/UA/" Version="1.05.04" PublicationDate="2025-01-08T00:00:00Z" />
+    </Model>
+  </Models>
+  <Aliases>
+    <Alias Alias="AudioDataType">i=16307</Alias>
+    <Alias Alias="AudioVariableType">i=17986</Alias>
+    <Alias Alias="HasSubtype">i=45</Alias>
+  </Aliases>
+  <UAVariableType NodeId="ns=1;g=14af9a06-49c7-4629-a3bd-f6fad12b595d" BrowseName="1:NewAudioVariableTypeForEAMB" DataType="AudioDataType">
+    <DisplayName>NewAudioVariableTypeForEAMB</DisplayName>
+    <Description>Second attempt at this</Description>
+    <Category>Base Info Audio Type</Category>
+    <References>
+      <Reference ReferenceType="HasSubtype" IsForward="false">AudioVariableType</Reference>
+    </References>
+  </UAVariableType>
+</UANodeSet>
