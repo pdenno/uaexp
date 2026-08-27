@@ -1,13 +1,6 @@
-(ns ua.part5-schema
-  "Definition of the Part 5 schema.
-   This, and probably not the generator code, will be kept up to date."
-  (:require
-   [ua.db-util                  :as dbu :refer [datahike-schema]]))
-
-(def part5-schema+
-  "Schema for Part 5 created Sat Apr 05 21:15:30 EDT 2025.
-   This, and probably not the generator code, will be kept up to date.
-   It can be modified here."
+;;;  "Schema for Part 5 created Sat Apr 05 21:15:30 EDT 2025.
+;;;   This, and probably not the generator code, will be kept up to date.
+;;;   It can be modified here."
   {
    ;; --------------------------- Alias
    :Alias/name
@@ -1292,6 +1285,4 @@
 
    :box/string
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
-   })
-
-(def part5-schema (datahike-schema part5-schema+))
+   }

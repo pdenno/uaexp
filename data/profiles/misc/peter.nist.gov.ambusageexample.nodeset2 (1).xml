@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UANodeSet xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" LastModified="2025-03-23T16:05:13.7944359Z" xmlns="http://opcfoundation.org/UA/2011/03/UANodeSet.xsd">
+  <NamespaceUris>
+    <Uri>http://peter.nist.gov/AMBusageExample</Uri>
+  </NamespaceUris>
+  <Models>
+    <Model ModelUri="http://peter.nist.gov/AMBusageExample" Version="0.1" PublicationDate="2025-03-21T00:00:00Z">
+      <RequiredModel ModelUri="http://opcfoundation.org/UA/" Version="1.05.04" PublicationDate="2025-01-08T00:00:00Z" />
+    </Model>
+  </Models>
+  <Aliases>
+    <Alias Alias="HasSubtype">i=45</Alias>
+    <Alias Alias="BaseObjectType">i=58</Alias>
+  </Aliases>
+  <UAObjectType NodeId="ns=1;g=40e6601c-9f78-480d-8c77-1f5a8349e113" BrowseName="1:NewTypeForEAMB">
+    <DisplayName>NewTypeForEAMB</DisplayName>
+    <Description>I'm just getting started, don't rush me!</Description>
+    <Category>Base Info Base Types</Category>
+    <References>
+      <Reference ReferenceType="HasSubtype" IsForward="false">BaseObjectType</Reference>
+    </References>
+  </UAObjectType>
+</UANodeSet>
