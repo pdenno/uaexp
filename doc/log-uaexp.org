@@ -1,0 +1,1745 @@
+* Purpose: About the uaexp code
+* Tags implemented
+* Log
+** [2024-07-08 Mon] Reading Part 5
+  * I'm contemplating reading Part 5 and the Robotics Companion Spec into Datahike DBs.
+    Therefore I started the project uaexp and borrowed stuff from schema-db.
+  * These are "schema instance" files, not xsd, so it is apt to be a bit different than schema-db.
+  * I can read the XML, so first thing go do, I think is find out what tags are being used.
+*** Date
+*** DateTime, for example
+ * There is not DateTime object in P5, but there is this:
+     :http://opcfoundation.org/UA/2008/02/Types.xsd/DateTime
+**** Source looks like this
+#+begin_src xml
+  <UAVariable NodeId="i=15960" BrowseName="NamespacePublicationDate" ParentNodeId="i=15957" DataType="DateTime">
+    <DisplayName>NamespacePublicationDate</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=68</Reference>
+      <Reference ReferenceType="HasProperty" IsForward="false">i=15957</Reference>
+    </References>
+    <Value>
+      <DateTime xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">2023-12-15T00:00:00Z</DateTime>
+    </Value>
+  </UAVariable>
+#+end_src
+**** Encodes to the following when I xml-read it
+#+begin_src clojure
+  #:xml{:tag :p5/UAVariable,
+	:attrs {:NodeId "i=15960", :BrowseName "NamespacePublicationDate", :ParentNodeId "i=15957", :DataType "DateTime"},
+	:content
+	[#:xml{:tag :p5/DisplayName, :content "NamespacePublicationDate"}
+	 #:xml{:tag :p5/References,
+	       :content
+	       [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasTypeDefinition"}, :content "i=68"}
+		#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasProperty", :IsForward "false"}, :content "i=15957"}]}
+	 #:xml{:tag :p5/Value,
+	       :content [#:xml{:tag :http://opcfoundation.org/UA/2008/02/Types.xsd/DateTime, :content "2023-12-15T00:00:00Z"}]}]}
+#+end_src
+  * Therefore, I think it is okay to just treat these normally, translating the NS into "uaTypes" or something like that.
+    e.g. :uaTypes/DateTime.
+*** Tags from robotics
+#+begin_src clojure
+#+end_src
+*** Differences between robotics and p5.
+  (clojure.set/difference (:robot foo) (:p5 foo)) ==> #{:p5/RequiredModel :p5/NamespaceUris :p5/Uri}
+ * The fact that this is here suggests that either Part5 is not self-describing or there is something missing.
+   - I don't think it matters much, they are just trying to say what P5 this is built on: 1.04
+   - The P5 I picked up is 1.05.03 (which is current).
+ * All this stuff is right at the top:
+#+begin_src xml
+  <NamespaceUris>
+    <Uri>http://opcfoundation.org/UA/Robotics/</Uri>
+    <Uri>http://opcfoundation.org/UA/DI/</Uri>
+  </NamespaceUris>
+  <Models>
+    <Model ModelUri="http://opcfoundation.org/UA/Robotics/" Version="1.01.2" PublicationDate="2021-05-20T00:00:00Z">
+      <RequiredModel ModelUri="http://opcfoundation.org/UA/" Version="1.04" PublicationDate="2019-05-01T00:00:00Z" />
+      <RequiredModel ModelUri="http://opcfoundation.org/UA/DI/" Version="1.02" PublicationDate="2019-05-01T00:00:00Z" />
+    </Model>
+  </Models>
+#+end_src
+
+#+begin_src clojure
+   ;(-> (clojure.set/difference (:p5 foo) (:robot foo)) sort vec) ==>
+   [:p5/Category
+    :p5/RolePermission
+    :p5/RolePermissions
+    :p5/UAMethod
+    :p5/UAVariableType
+    :uaTypes/Argument
+    :uaTypes/ArrayDimensions
+    :uaTypes/Body
+    :uaTypes/DataType
+    :uaTypes/Description
+    :uaTypes/DisplayName
+    :uaTypes/EUInformation
+    :uaTypes/EnumValueType
+    :uaTypes/ExtensionObject
+    :uaTypes/Identifier
+    :uaTypes/ListOfExtensionObject
+    :uaTypes/ListOfString
+    :uaTypes/Name
+    :uaTypes/NamespaceUri
+    :uaTypes/TypeId
+    :uaTypes/UInt32
+    :uaTypes/UnitId
+    :uaTypes/Value
+    :uaTypes/ValueRank]
+#+end_src
+*** Summary
+  * =Nice day= I haven't programmed in a while. I certainly didn't finish this(!) but looks like it will only take a day or two.
+    - I established a basic code from schema-db.
+    - I changed the long namespace names to :uaTypes.
+    - I implemented a few objects, see [[*Tags implemented][Tags implemented]].
+  * _Tomorrow:_
+    - Check whether xml-group-by is doing what we want; I think so, but...
+    - Create parse.clj and move some core_test.clj into parse_test.clj.
+** [2025-03-24 Mon] =I'm Back!=
+  * I've spent about 3 days studying Part 5, CESMII Profile Designer and related things so far this month.
+  * Back in 2024 I was thinking to use defparse-style, in which I implemented some tags.
+    Today, I'm not sure that's the way to go. There are just 8 NodeTypes in UA.
+  * Issues
+    - +Separate P5, P4, and P3+
+      + There is no need to do this. What is needed is completely defined in Part 5. For example [[https://reference.opcfoundation.org/Core/Part5/v105/docs/12.2.1][12.2.1 BaseDataType]]
+	 #+begin_src xml
+	<UADataType NodeId="i=24" BrowseName="BaseDataType" IsAbstract="true">
+	  <DisplayName>BaseDataType</DisplayName>
+	  <Category>Base Info Base Types</Category>
+	  <Documentation>https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.1</Documentation>
+	  <References />
+       </UADataType>
+	 #+end_src
+      + Here is a more complicated one: [[https://reference.opcfoundation.org/Core/Part5/v105/docs/12.2.3][12.3.4 ByteString]] (has 6 subclauses)
+      #+begin_src xml
+	<UADataType NodeId="i=15" BrowseName="ByteString">
+	  <DisplayName>ByteString</DisplayName>
+	  <Category>Base Info Base Types</Category>
+	  <Documentation>https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.3</Documentation>
+	  <References>
+	    <Reference ReferenceType="HasSubtype" IsForward="false">i=24</Reference>
+	  </References>
+	</UADataType>
+
+	<UADataType NodeId="i=16307" BrowseName="AudioDataType">
+	  <DisplayName>AudioDataType</DisplayName>
+	  <Category>Base Info Audio Type</Category>
+	  <Documentation>https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.3/#12.2.3.1</Documentation>
+	  <References>
+	    <Reference ReferenceType="HasSubtype" IsForward="false">i=15</Reference> <!-- Points to ByteString -->
+	  </References>
+	</UADataType>
+      #+end_src
+    - Some things like "Aliases" is just an XML invention to collect Alias /which are what? Part 3 concept?/
+    - What about all those things I put in :uaTypes (How did I make that decision?)
+  * Here is what I had:
+    (But things marked DONE need more thought.)
+     #+begin_src clojure
+       (:p5/Alias ; Done
+	:p5/Aliases ; Done, xml container
+	:p5/Category
+	:p5/Definition
+	:p5/Description
+	:p5/DisplayName
+	:p5/Documentation
+	:p5/Field
+	:p5/InverseName
+	:p5/Model
+	:p5/Models ; xml-container container
+	:p5/NamespaceUris
+	:p5/Reference ; Done
+	:p5/References  ; xml-container
+	:p5/RequiredModel
+	:p5/RolePermission
+	:p5/RolePermissions
+	:p5/UADataType
+	:p5/UAMethod
+	:p5/UANodeSet ; Done
+	:p5/UAObject
+	:p5/UAObjectType
+	:p5/UAReferenceType
+	:p5/UAVariable ; Done
+	:p5/UAVariableType
+	:p5/Uri
+	:p5/Value
+	;; There is no such thing as "uaTypes" Part 3 or Part 5 maybe? Some are attrs.
+	:uaTypes/Argument
+	:uaTypes/ArrayDimensions
+	:uaTypes/Body
+	:uaTypes/Boolean
+	:uaTypes/ByteString
+	:uaTypes/DataType
+	:uaTypes/DateTime
+	:uaTypes/Description
+	:uaTypes/DisplayName
+	:uaTypes/EUInformation
+	:uaTypes/EnumValueType
+	:uaTypes/ExtensionObject
+	:uaTypes/Identifier
+	:uaTypes/Int32
+	:uaTypes/ListOfExtensionObject
+	:uaTypes/ListOfInt32
+	:uaTypes/ListOfLocalizedText
+	:uaTypes/ListOfString
+	:uaTypes/Locale
+	:uaTypes/LocalizedText
+	:uaTypes/Name
+	:uaTypes/NamespaceUri
+	:uaTypes/String
+	:uaTypes/Text
+	:uaTypes/TypeId
+	:uaTypes/UInt32
+	:uaTypes/UnitId
+	:uaTypes/Value
+	:uaTypes/ValueRank)
+#+end_src
+    * Here is a segment of the XML.
+      #+begin_src clojure
+ {:xml/ns-info
+  {:p->u
+   {"xml" "http://www.w3.org/XML/1998/namespace",
+    "xmlns" "http://www.w3.org/2000/xmlns/",
+    "xsi" "http://www.w3.org/2001/XMLSchema-instance",
+    "xsd" "http://www.w3.org/2001/XMLSchema",
+    "ROOT" "http://opcfoundation.org/UA/2011/03/UANodeSet.xsd",
+    "uaTypes" "http://opcfoundation.org/UA/2008/02/Types.xsd"},
+   :u->ps
+   {"http://www.w3.org/XML/1998/namespace" ["xml"],
+    "http://www.w3.org/2000/xmlns/" ["xmlns"],
+    "http://www.w3.org/2001/XMLSchema-instance" ["xsi"],
+    "http://www.w3.org/2001/XMLSchema" ["xsd"],
+    "http://opcfoundation.org/UA/2011/03/UANodeSet.xsd" ["ROOT"],
+    "http://opcfoundation.org/UA/2008/02/Types.xsd" ["uaTypes"]}},
+  :xml/content
+  [#:xml{:tag :ROOT/UANodeSet,
+	 :attrs {:LastModified "2025-01-08T00:00:00Z"},
+	 :content
+	 [#:xml{:tag :ROOT/Models,
+		:content
+		[#:xml{:tag :ROOT/Model,
+		       :attrs
+		       {:ModelUri "http://opcfoundation.org/UA/",
+			:XmlSchemaUri "http://opcfoundation.org/UA/2008/02/Types.xsd",
+			:Version "1.05.04",
+			:PublicationDate "2025-01-08T00:00:00Z",
+			:ModelVersion "1.5.4"}}]}
+	  #:xml{:tag :ROOT/Aliases,
+		:content
+		[#:xml{:tag :ROOT/Alias, :attrs {:Alias "Boolean"}, :content "i=1"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "SByte"}, :content "i=2"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Byte"}, :content "i=3"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Int16"}, :content "i=4"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "UInt16"}, :content "i=5"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Int32"}, :content "i=6"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "UInt32"}, :content "i=7"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Int64"}, :content "i=8"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "UInt64"}, :content "i=9"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Float"}, :content "i=10"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Double"}, :content "i=11"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "DateTime"}, :content "i=13"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "String"}, :content "i=12"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "ByteString"}, :content "i=15"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Guid"}, :content "i=14"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "XmlElement"}, :content "i=16"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "NodeId"}, :content "i=17"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "ExpandedNodeId"}, :content "i=18"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "QualifiedName"}, :content "i=20"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "LocalizedText"}, :content "i=21"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "StatusCode"}, :content "i=19"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Structure"}, :content "i=22"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Number"}, :content "i=26"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Integer"}, :content "i=27"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "UInteger"}, :content "i=28"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasComponent"}, :content "i=47"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasProperty"}, :content "i=46"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "Organizes"}, :content "i=35"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasEventSource"}, :content "i=36"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasNotifier"}, :content "i=48"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasSubtype"}, :content "i=45"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasTypeDefinition"}, :content "i=40"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasModellingRule"}, :content "i=37"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasEncoding"}, :content "i=38"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasDescription"}, :content "i=39"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasCause"}, :content "i=53"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "ToState"}, :content "i=52"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "FromState"}, :content "i=51"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasEffect"}, :content "i=54"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasTrueSubState"}, :content "i=9004"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasFalseSubState"}, :content "i=9005"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasDictionaryEntry"}, :content "i=17597"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasCondition"}, :content "i=9006"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasGuard"}, :content "i=15112"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasAddIn"}, :content "i=17604"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasInterface"}, :content "i=17603"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "GeneratesEvent"}, :content "i=41"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "AlwaysGeneratesEvent"}, :content "i=3065"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasOrderedComponent"}, :content "i=49"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "HasAlarmSuppressionGroup"}, :content "i=16361"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "AlarmGroupMember"}, :content "i=16362"}
+		 #:xml{:tag :ROOT/Alias, :attrs {:Alias "AlarmSuppressionGroupMember"}, :content "i=32059"}]}
+	  #:xml{:tag :ROOT/UAObject,
+		:attrs {:NodeId "i=3062", :BrowseName "Default Binary", :SymbolicName "DefaultBinary"},
+		:content
+		[#:xml{:tag :ROOT/DisplayName, :content "Default Binary"}
+		 #:xml{:tag :ROOT/Description, :content "The default binary encoding for a data type."}
+		 #:xml{:tag :ROOT/References,
+		       :content [#:xml{:tag :ROOT/Reference, :attrs {:ReferenceType "HasTypeDefinition"}, :content "i=58"}]}]}
+	  #:xml{:tag :ROOT/UAObject,
+		:attrs {:NodeId "i=3063", :BrowseName "Default XML", :SymbolicName "DefaultXml"},
+		:content
+		[#:xml{:tag :ROOT/DisplayName, :content "Default XML"}
+		 #:xml{:tag :ROOT/Description, :content "The default XML encoding for a data type."}
+		 #:xml{:tag :ROOT/References,
+		       :content [#:xml{:tag :ROOT/Reference, :attrs {:ReferenceType "HasTypeDefinition"}, :content "i=58"}]}]}
+
+      #+end_src
+** [2025-03-25 Tue] More on Reading Part 5 XML
+*** Not everything is accounted for: RolePermission(s)? *WRONG*
+  * It (not the plural) IS an attribute. But note that it has to be implemented as a element, and the plural part is nothing in Part 5.
+#+begin_src xml
+    <UAVariable NodeId="i=2265" BrowseName="BuildNumber" ParentNodeId="i=2260" DataType="String">
+    <DisplayName>BuildNumber</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=63</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">i=2260</Reference>
+    </References>
+    <RolePermissions>
+      <RolePermission Permissions="33">i=15644</RolePermission>
+      <RolePermission Permissions="59391">i=15716</RolePermission>
+      <RolePermission Permissions="59391">i=15704</RolePermission>
+    </RolePermissions>
+#+end_src
+*** I spend a few hours documenting (in ua/core.clj) how to handle each tag and attribute.
+   * There are still some loose ends, but I think this is going to prove to be very useful (when compared with my approach to OAGIS)
+     - But OAGIS isn't documented very well; this is!
+*** Now it is time to Table 17 and everything I've learned in documenting...
+   * Firstly, we need to call "analyze-node" for all the node classes and extension objects. This will transform the content to a map.
+**** This is the old way. In the new way, I'm going to have :Node/type, :Node/DisplayName etc. (all the Table 17 stuff).
+#+begin_src clojure
+(defparse :p5/UAVariable
+  [xmap]
+  (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
+    (cond-> (process-part3-attrs xmap)
+      DisplayName  (assoc :UAVariable/DisplayName (->> DisplayName first :xml/content))
+      Description  (assoc :UAVariable/Description (->> Description first :xml/content))
+      References   (assoc :UAVariable/References  (->> References  first :xml/content (mapv rewrite-xml)))))) ; ToDo: Not sure about first here (and maybe above either)
+#+end_src
+** [2025-03-26 Wed] More on Reading Part 5 XML
+*** Dead Code
+#+begin_src clojure
+(defn xml-attrs-as-content
+  "Make XML attrs content with p5-namespaced tags, checking to ensure no collisions."
+  ([xml] (xml-attrs-as-content xml "p5"))
+  ([{:xml/keys [attrs content] :as xml} ns]
+   (let [attr-too? (->> attrs keys (map name) set)]
+     (when (some #(attr-too? %) (->> content (map :xml/tag) (map name)))
+       (throw (ex-info "Attribute/tag collision." {:attrs attr-too? :tags (map :xml/tag content)})))
+     (let [attrs (reduce-kv (fn [res k v] (conj res (-> {}
+							(assoc :xml/tag (keyword ns (name k)))
+							(assoc :xml/content v))))
+			    []
+			    attrs)]
+       (-> xml
+	   (dissoc :xml/attrs)
+	   (update :xml/content into attrs))))))
+
+  (defparse :p5/UADataType
+    [xmap]
+    (let [{:keys [DisplayName Description References]} (xu/xml-group-by xmap :p5/References :p5/DisplayName :p5/Description)]
+      (cond-> (process-part3-attrs xmap)
+	DisplayName  (assoc :UAObject/DisplayName (->> DisplayName first :xml/content))
+	Description  (assoc :UAObject/Description (->> Description first :xml/content))
+	References   (assoc :UAObject/References  (->> References  first :xml/content (mapv rewrite-xml))))))
+#+end_src
+*** analyze-node-xml
+   * Added optional doc-string to defparse
+     - This is still a PITA. Now Kondo screws up if no docstring!
+   * Added env/dev/dutil.clj
+     - ns-setup!, nicer, nicer- in there.
+*** Fix this
+#+begin_src clojure
+ {:Node/type :UADataType,
+  :Node/display-name "NamingRuleType",
+  :Node/references [[:ref/has-property "i=12169"] [:ref/subtype-of "i=29"]],
+  :def/name nil, ; <========================================== Also it belongs in a definition (:Node/definition???)
+  :def/fields    ; <========================================== Use Def
+  [#:field{:Description "The BrowseName must appear in all instances of the type.", :Name "Mandatory", :Value "1"} ; <============= Should be lower-case Field/description etc.
+   #:field{:Description "The BrowseName may appear in an instance of the type.", :Name "Optional", :Value "2"}
+   #:field{:Description "The modelling rule defines a constraint and the BrowseName is not used in an instance of the type.",
+	   :Name "Constraint",
+	   :Value "3"}],
+  :Node/id "i=120",
+  :Node/browse-name "NamingRuleType"}
+#+end_src
+*** Summary
+   * _Nice day!_ I was interrupted by meetings here and there, and nothing I'm doing is in any way challenging, so I just did it.
+     - Probably it being a nice day has more to do with the meeting with MEP on SchedulingTBD going well.
+   * _Tomorrow:_
+     - [[*Fix this][Fix this]]
+     - Collect errors e.g. LOG/WARN  : - No method using default = :p5/ParentNodeId in a set and implement them.
+     - Generate (learn) schema.
+     - Write some validation code.
+     - Experiment with queries.
+<<<<<<< HEAD
+** [2025-03-29 Sat]
+   * I'm working on this. I worked on it all yesterday, which should be in the log, somewhere.
+*** Fixing some nils in the output
+#+begin_src clojure
+	 #:xml{:tag :p5/UAVariable,
+	       :attrs {:NodeId "i=15964", :BrowseName "StaticStringNodeIdPattern", :ParentNodeId "i=15957", :DataType "String"},
+	       :content
+	       [#:xml{:tag :p5/DisplayName, :content "StaticStringNodeIdPattern"}
+		#:xml{:tag :p5/References,
+		      :content
+		      [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasTypeDefinition"}, :content "i=68"}
+		       #:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasProperty", :IsForward "false"}, :content "i=15957"}]}
+		#:xml{:tag :p5/Value, :content [#:xml{:tag :UATypes/String}]}]}
+
+#+end_src
+*** Can I do strings?
+#+begin_src xml
+  "<UADataType NodeId=\"i=18808\" BrowseName=\"3DVector\" SymbolicName=\"ThreeDVector\">
+    <DisplayName>3DVector</DisplayName>
+    <Category>Base Info Spatial Data</Category>
+    <Documentation>https://reference.opcfoundation.org/v105/Core/docs/Part5/12.24</Documentation>
+    <References>
+      <Reference ReferenceType=\"HasSubtype\" IsForward=\"false\">i=18807</Reference>
+    </References>
+    <Definition Name=\"3DVector\" SymbolicName=\"ThreeDVector\">
+      <Field Name=\"X\" DataType=\"i=11\" />
+      <Field Name=\"Y\" DataType=\"i=11\" />
+      <Field Name=\"Z\" DataType=\"i=11\" />
+    </Definition>
+  </UADataType>"
+#+end_src
+  * This isn't at all correct!
+#+begin_src clojure
+  {:Node/symbolic-name "ThreeDVector",
+   :Node/documentation "https://reference.opcfoundation.org/v105/Core/docs/Part5/12.24",
+   :Node/type :UADataType,
+   :Node/references [[:P5RefType/is-subtype-of "i=18807"]],
+   :Node/id "i=18808",
+   :Node/category "Base Info Spatial Data",
+   :Node/display-name "3DVector",
+   :Definition/symbolic-name #:Node{:symbolic-name nil},
+   :Definition/name "3DVector",
+   :Node/browse-name "3DVector"}
+** [2025-03-27 Thu] A few hours here
+   * Got Pirelli tires, reviewed CESMII I3X and provided comments.
+** [2025-03-28 Fri] Finishing up parsing of Part 5
+   * See two days ealier "Tomorrow" entries for ToDos.
+   * bug
+#+begin_src clojure
+	 #:xml{:tag :p5/UADataType,
+	       :attrs {:NodeId "i=29", :BrowseName "Enumeration", :IsAbstract "true"},
+	       :content
+	       [#:xml{:tag :p5/DisplayName, :content "Enumeration"}
+		#:xml{:tag :p5/Category, :content "Base Info Base Types"}
+		#:xml{:tag :p5/Documentation, :content "https://reference.opcfoundation.org/v105/Core/docs/Part22/5.3.1"}
+		#:xml{:tag :p5/References,
+		      :content [#:xml{:tag :p5/Reference, :attrs {:ReferenceType "HasSubtype", :IsForward "false"}, :content "i=24"}]}
+		#:xml{:tag :p5/Definition, :attrs {:Name "Enumeration"}}]}
+
+#+end_src
+*** Dead code
+#+begin_src clojure
+  (def is-elem? #{:RolePermissions, :UserRolePermissions})
+
+  ;;; ToDo: This needs work! There are more attrs than just those in Table 17. Also, this is probably the place to assign correct namespaces.
+  ;;;       Decisions are made, in part, based on the element tag. Certainly ExtensionObject needs special processing.
+(defn process-part3-attrs
+  [xmap]
+  (reduce-kv (fn [m k v]
+	       (if (part3-attr? k)
+		 (if (#{:isAbstract :isForward :IsOptionalSet} k)
+		   (assoc m (keyword "p3" (name k)) (if (= v "true") true false))
+		   (assoc m (keyword "p3" (name k)) v))
+		 (log! :warn (str "Unknown attribute " k))))
+	  {}
+	  (:xml/atrs xmap)))
+#+end_src
+** [2025-03-29 Sat] no nils
+   * Worked a few hours.
+   * Produces with no nils.
+   * Added schema-learning stuff from RADmapper, which works but generates warnings, uninvestigated.
+** [2025-03-31 Mon] Working until 10:30 to get a schema
+   * Working to get a schema
+*** ToDo: Fix references
+   * Actually, it might just be a matter of resolving them, but in principle, it is possible for the key to be a map. (add debugging for this.
+   * Example:
+#+begin_src clojure
+  :references [#:P5RefType{:has-property   #:IMPL{:fwd-ref "i=104"}}
+	       #:P5RefType{:has-property   #:IMPL{:fwd-ref "i=105"}}
+	       #:P5RefType{:is-subtype-of  #:IMPL{:fwd-ref "i=63"}}],
+#+end_src
+** [2025-04-02 Wed] After the ISO meeting :(
+   * What is done is done. It wasn't really useful work anyway.
+*** Continuing with "Fix references" from Monday
+   * I do think that i=n should be resolved as the entity is being stored.
+     - Meaning that first pass through the data is for lookup-refs (see RADmapper/builtins.clj).
+     - Minor point that name should be :IMPL/ref, not :IMPL/fwd-ref.
+**** Investigate warnings on learn schema
+***** This uses an i=n-style reference in the first position of the structure
+#+begin_src clojure
+      {:xmap {:xml/tag :p5/Reference, :xml/attrs {:ReferenceType "i=25345"}, :xml/content "i=25626"}}
+#+end_src
+   * Below is the edn-xml. "Pushed" might be OPC UA jargon.
+     - Need to make DH attributes for ":P5RefType/HasProperty"
+     - Ditto for things that are tag :p5/UAReferenceType --> :P5RefType/HasPushedSecurityGroup.
+       + _Do they have the notion of an abstract ReferenceType?_ Yes. [[https://reference.opcfoundation.org/Core/Part3/v104/docs/7][See Clause 7 in the Address Space Model (Part 3)]].
+#+begin_src clojure
+  #:xml{:tag :p5/UAObjectType,
+	:attrs {:NodeId "i=25337",
+		:BrowseName "PubSubKeyPushTargetType"},
+	:content [#:xml{:tag :p5/DisplayName,
+			:content "PubSubKeyPushTargetType"}
+		  #:xml{:tag :p5/Category,
+			:content "PubSub Model SKS Push"}
+		  #:xml{:tag :p5/Documentation,
+			:content "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.1"}
+		  #:xml{:tag :p5/References,
+			:content [#:xml{:tag :p5/Reference,
+					:attrs {:ReferenceType "i=25345"},     ; This refers to "HasPushedSecurityGroup", a :p5/UAReferenceType
+					:content "i=25626"}
+				  #:xml{:tag :p5/Reference,
+					:attrs {:ReferenceType "HasProperty"}, ; These are in Part 3 (Address Space Modeli'm guessing such things are define in P5. This isn't a P3 Table 17 attribute.
+					:content "i=25634"}
+				  #:xml{:tag :p5/Reference,
+					:attrs {:ReferenceType "HasProperty"},
+					:content "i=25635"}]},,,,,]}
+
+  #:xml{:tag :p5/UAReferenceType,
+	:attrs {:NodeId "i=25345",
+		:BrowseName "HasPushedSecurityGroup"},
+	:content [,,,,
+		  #:xml{:tag :p5/UAObject,
+			:attrs
+			{:NodeId "i=25626",
+			 :BrowseName "<SecurityGroupName>",             ; <======================= unusual!
+			 :SymbolicName "SecurityGroupName_Placeholder", ; <======================= unusual!
+			 :ParentNodeId "i=25337"},
+			:content
+			[#:xml{:tag :p5/DisplayName,
+			       :content "<SecurityGroupName>"},,,,]}     ; <====================== unusual!
+#+end_src
+
+**** Generate a sorted, keyed "schema+ style" schema.
+#+begin_src clojure
+  {nil [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Permissions}],    ;  <==================== This is messed up =DONE=
+ "xml"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :xml/attrs}                 ; <==================== This is also messed up. =DONE=
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :xml/content}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/keyword, :ident :xml/tag}],
+ "P5RefType"                                                                                         ; <===== Do these with p5.edn directly so as to get the inverse relations
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/alarm-group-member}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/alarm-suppression-group-member}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/always-generates-event?}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/from-state}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/from-transition}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/generates-event?}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-alarm-suppression-group}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-cause}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-component}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-condition}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-description}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-effect}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-interface}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-modeling-rule}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-ordered-component}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-property}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-true-substate}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/has-type-definition}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-alarm-suppression-group-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-cause-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-component-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-encoding-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-ordered-component-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-property-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-subtype-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/is-true-substate-of}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/member-of-alarm-group}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/member-of-alarm-suppression-group}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/of-organization}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/origanizes}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :P5RefType/to-state}],
+ "UAExtObj" [#:db{:cardinality :db.cardinality/one, :valueType :db.type/keyword, :ident :UAExtObj/hey!}],
+ :other
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=18805"}}  ; <========================== These need work =DONE=
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=15297"}}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=14936"}}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=25238"}}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=18804"}}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=25345"}}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=15296"}}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident #:IMPL{:ref "i=14476"}}],
+ "Alias"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Alias/name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Alias/node-id}],             ; <==== OK
+ "box"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/boolean, :ident :box/boolean}                ; <==== OK
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/instant, :ident :box/date-time}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/number, :ident :box/number}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref, :ident :box/ref}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :box/string}],
+ "P3LocalizedText"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :P3LocalizedText/Locale}     ; <==== OK except "Locale" =DONE+
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :P3LocalizedText/str}],
+ "Model"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Model/model-version}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Model/publication-date}     ; <==== OK
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Model/uri}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Model/version}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Model/xml-schema-uri}],
+ "IMPL" [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :IMPL/ref}],          ; <======= Find it.
+ "field"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/AllowSubTypes}        ; <==== OK except make kebab-case. =DONE=
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/DataType}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/Description}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/Name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/Value}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/ValueRank}],
+ "P6ByteString" [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :P6ByteString/str}],
+ "NodeSet"
+ [#:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :NodeSet/aliases}              ; <==== OK
+  #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :NodeSet/content}
+  #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :NodeSet/models}],
+ "Definition"
+ [#:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :Definition/fields}           ; < ==== OK
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Definition/name}],
+ "Node"
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/access-level}         ; < ===== OK
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/access-restictions}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/number, :ident :Node/array-dimensions}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/browse-name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/category}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/data-type}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/description}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/display-name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/documentation}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/event-notifier}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/id}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/inverse-name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/boolean, :ident :Node/is-abtract?}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/method-declaration-id}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/parent-node-id}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/purpose}
+  #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :Node/references}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/release-status}
+  #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :Node/role-permissions}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :Node/symbolic-name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/boolean, :ident :Node/symmetric?}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/keyword, :ident :Node/type}
+  #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :ident :Node/value}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/number, :ident :Node/value-rank}]}
+#+end_src
+**** Fields need work
+ [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/AllowSubTypes}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/DataType}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/Description}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/Name}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/Value}
+  #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :field/ValueRank}],
+					=Done=
+*** Dead code
+#+begin_src clojure
+;;; A nice thing about node classes is that they don't contain other node-classes.
+(defn analyze-node-xml
+  "Return a map for a node, making attributes properties, checking for mandatory properties, and
+   setting the namespaces of everything to the proper UA concept."
+  [{:xml/keys [tag] :as _xml}]
+  (assert (node-class? tag)))
+
+
+#+end_src
+*** Summary
+   * =Nice day= despite how it started at 1AM... ;^).
+     - I didn't work too long, but I got a lot of the processing of references in order.
+   * _Tomorrow:_ (Really. I'm enjoying this.)
+     - "IMPL" [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :IMPL/ref}], _What's that?_
+     - Make schema for P5RefType. (P5StdRefType) (as they are called in https://reference.opcfoundation.org/Core/Part5/v105/docs/11
+       + Replace the stuff I did for P3 Ref types with something based on p5.edn (which I will learn while I'm doing the above).
+     - Still haven't handled P3ExtObj (Extension Objects).
+     - Things like :Node/parent-node-id "i=15957" should probably wrap in a :IMPL/ref.
+** [2025-04-03 Thu] Make the DB?
+*** Dead Code
+#+begin_src clojure
+    (defn find-ref-db-type
+      "Return a map with :db/cardinality and :db/type for the given ReferenceType.type"
+      [type-info])
+  (def ref-type-cardinality
+    {"Aggregates"                          {:cardinality :db.cardinality/many :inverse-name nil}
+     "AlarmGroupMember"                    {:cardinality :db.cardinality/many :inverse-name nil}
+     "AlarmSuppressionGroupMember"         {:cardinality :db.cardinality/many :inverse-name nil}
+     "AliasFor"                            {:cardinality :db.cardinality/one  :inverse-name nil}
+     "AlwaysGeneratesEvent"                {:cardinality :db.cardinality/one  :inverse-name nil}
+     "AssociatedWith"                      {:cardinality :db.cardinality/many :inverse-name nil}
+     "Controls"                            {:cardinality :db.cardinality/many :inverse-name nil}
+     "DataSetToWriter"                     {:cardinality :db.cardinality/many :inverse-name nil}
+     "FromState"                           {:cardinality :db.cardinality/one :inverse-name nil}
+     "GeneratesEvent"                      {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasAddIn"                            {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasAlarmSuppressionGroup"            {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasArgumentDescription"              {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasAttachedComponent"                {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasCause"                            {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasChild"                            {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasComponent"                        {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasCondition"                        {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasContainedComponent"               {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasCurrentData"                      {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasCurrentEvent"                     {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasDataSetReader"                    {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasDataSetWriter"                    {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasDescription"                      {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasDictionaryEntry"                  {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasEffect"                           {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEffectDisable"                    {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEffectEnable"                     {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEffectSuppressed"                 {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEffectUnsuppressed"               {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEncoding"                         {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEngineeringUnitDetails"           {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasEventSource"                      {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasFalseSubState"                    {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasGuard"                            {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasHistoricalConfiguration"          {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasInterface"                        {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasKeyValueDescription"              {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasLowerLayerInterface"              {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasModellingRule"                    {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasNotifier"                         {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasOptionalInputArgumentDescription" {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasOrderedComponent"                 {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasPhysicalComponent"                {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasProperty"                         {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasPubSubConnection"                 {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasPushedSecurityGroup"              {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasQuantity"                         {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasReaderGroup"                      {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasReferenceDescription"             {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasStructuredComponent"              {:cardinality :db.cardinality/many :inverse-name nil}
+     "HasSubStateMachine"                  {:cardinality :db.cardinality/one :inverse-name nil}
+     "HasSubtype"                          {:cardinality :db.cardinality/many :inverse-name   nil}
+     "HasTrueSubState"                     {:cardinality :db.cardinality/one   :inverse-name nil}
+     "HasTypeDefinition"                   {:cardinality :db.cardinality/one   :inverse-name nil}
+     "HasWriterGroup"                      {:cardinality :db.cardinality/many :inverse-name nil}
+     "HierarchicalReferences"              {:cardinality :db.cardinality/many :inverse-name nil}
+     "IsDeprecated"                        {:cardinality :db.cardinality/one :inverse-name nil}
+     "IsExecutableOn"                      {:cardinality :db.cardinality/many    :inverse-name nil}
+     "IsExecutingOn"                       {:cardinality :db.cardinality/many :inverse-name nil}
+     "IsHostedBy"                          {:cardinality :db.cardinality/many :inverse-name nil}
+     "IsPhysicallyConnectedTo"             {:cardinality :db.cardinality/many :inverse-name nil}
+     "NonHierarchicalReferences"           {:cardinality :db.cardinality/many :inverse-name nil}
+     "Organizes"                           {:cardinality :db.cardinality/many :inverse-name nil}
+     "References"                          {:cardinality :db.cardinality/many :inverse-name nil}
+     "RepresentsSameEntityAs"              {:cardinality :db.cardinality/many :inverse-name nil}
+     "RepresentsSameFunctionalityAs"       {:cardinality :db.cardinality/many :inverse-name nil}
+     "RepresentsSameHardwareAs"            {:cardinality :db.cardinality/many :inverse-name nil}
+     "Requires"                            {:cardinality :db.cardinality/many :inverse-name nil}
+     "ToState"                             {:cardinality :db.cardinality/one :inverse-name nil}
+     "UsesPriorityMappingTable"            {:cardinality :db.cardinality/one :inverse-name nil}
+     "Utilizes"                            {:cardinality :db.cardinality/many :inverse-name  nil}})
+
+(def p3-ref-types
+  "See https://reference.opcfoundation.org/Core/Part3/v105/docs/7.
+  DH schema will have to be generated for the ones the concrete ones."
+  [{:id :References
+    :is-abstract? true
+    :children #{:HierarchicalReferences :NonHierarchicalReferences}}
+   {:id :HierarchicalReferences
+    :is-abstract? true
+    :children #{:HasEventSource :HasChild :Organizes}}
+   {:id :NonHierarchicalReferences
+    :is-abstract? true
+    :children #{:GeneratesEvent :HasEncoding :HasModellingRule :HasTypeDefinition}}
+   {:id :HasEventSource
+    :children #{:HasNotifier}}
+   {:id :HasChild
+    :is-abstract? true
+    :children #{:Aggregates :HasSubtype}}
+   {:id :Organizes}
+
+   {:id :GeneratesEvent
+    :children #{:AlwaysGeneratesEvent}}
+   {:id :HasEncoding}
+   {:id :HasModellingRule}
+   {:id :HasTypeDefinition}
+   {:id :AlwaysGeneratesEvent}  ; This ends non-hierarchical.
+
+   {:id :HasNotifier}           ; Back to hierarchical.
+   {:id :Aggregates
+    :is-abstract? true
+    :children #{:HasProperty :HasComponent}}
+   {:id :HasProperty}
+   {:id :HasComponent
+    :children #{:HasOrderedComponent}}
+   {:id :HasOrderedComponent}
+
+   {:id :HasSubtype}])
+
+(def p3-ref-direct-supertype
+  (reduce (fn [r k] (assoc r k (some (fn [p] (when (and (contains? p :children)  ((:children p) k))
+					       (:id p)))
+				     p3-ref-types)))
+	  {}
+	  (map :id p3-ref-types)))
+
+(def abstract-p3-ref-type? (->> p3-ref-types (filter :is-abstract?) (map :id) (map name) set))
+(def concrete-p3-ref-type? (->> p3-ref-types (remove :is-abstract?) (map :id) (map name) set))
+
+;;; ToDo: Study, for example, ObjectType https://reference.opcfoundation.org/Core/Part5/v105/docs/6
+(def additional-properties
+  "Properties for which I haven't yet studied the documentation, but seem to appear in P5 XML."
+  {:p5/VariableType  #{"Category"}
+   :p5/View          #{}
+   :p5/DataType      #{"Category"}
+   :p5/Object        #{"Category"}
+   :p5/Method        #{"Category"}
+   :p5/Variable      #{}
+   :p5/ObjectType    #{"Category"}
+   :p5/ReferenceType #{}}) ; ToDo: this is not nearly complete.
+
+#+end_src
+*** "IMPL" [#:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :ident :IMPL/ref}], _What's that?_
+     * This is just an artifact of wrapping the "i=n" things in :IMPL/ref. Ignore it.
+*** - Make schema for P5RefType. (P5StdRefType) (as they are called in https://reference.opcfoundation.org/Core/Part5/v105/docs/11)
+   * Replace the stuff I did for P3 Ref types with something based on p5.edn (which I will learn while I'm doing the above).
+*** Summary
+   * =Good day!=
+     - I studied how references are supposed to work.
+     - I wrote p5_cardinality.clj, which is rather OPC UA knowledge intensive, but I did my best.
+     - I wrote a new defparse :p5/Reference, which uses the card table.
+   * _Tomorrow:_ (Yes, keep going!)
+     - Create the DB.
+       + Going to have to add :db/unique to :Node/id (at least!).
+     - Make it load p5.edn.
+     - Write validation using Part 3 stipulations about source and target node required types.
+     - Move everything into part5.clj or some such thing. /Turns out it isn't clear what I should call it!/
+     - Try loading Asset Management Basics. /This is a multi-day thing./
+
+** [2025-04-04 Fri] Load schema?
+   * (tryme)
+   * (core/make-schema-info)
+** [2025-04-05 Sat] Load schema?
+  * I fixed error messages in core/learn-schema-basic.
+*** Dead code
+#+begin_src clojure
+(defn plus-style
+  "Reorganize the schema, which is a map keyed by category with values being a vector of all the schema in that category,
+   to a map with keys being a :db/ident and values being the rest of the schema (schema sans :db/ident)."
+  [schema-info]
+  (let [result (atom {})
+	skeys (-> schema-info keys sort)]
+    (doseq [k skeys]
+      (let [schemas (get schema-info k)]
+	(log! :info (str (count schemas) " in " k))
+	(doseq [s schemas]
+	  (swap! result #(assoc % (:db/ident s) (dissoc s :db/ident))))))
+    @result))
+#+end_src
+*** Problem that (core/make-schema-info), which is top-level for admin only has :P5StdRefType.
+  * Fixed.
+*** Summary
+   * =Good, short day=
+     - I got schema to try.
+** [2025-04-06 Sun] Load schema?
+   * Start by trying to load schema.
+*** Dead code
+#+begin_src clojure
+  (defn load-nodeset!
+    "Read the part5 edn into the DB. This is two-staged, wherein the first stage creates lookups,
+     and the second stage loads the full object."
+    [db-id nodeset]
+    (let [nodes (:NodeSet/content  nodeset)]
+      (when-not @lookups-loaded? (load-lookups! db-id nodeset))
+      (log! :info (str "Loading " (count nodes) " nodes."))
+      (doseq [n nodes]
+	(d/transact (connect-atm db-id) {:tx-data [(resolve-node-ids n db-id)]}))))
+
+    #:Node{:type :UADataType,
+	  :display-name "Byte",
+	  :category "Base Info Base Types",
+	  :documentation
+	  "https://reference.opcfoundation.org/v105/Core/docs/Part5/12.2.9/#12.2.9.11",
+	  :references
+	  [#:P5StdRefType{:subtype-of #:IMPL{:ref "i=28"}}],
+	  :id "i=3",
+	  :browse-name "Byte"}
+
+    #:Node{:type :UAVariable,
+	   :display-name "ClientDescription",
+	   :references
+	   [#:P5StdRefType{:has-type-definition
+			   #:IMPL{:ref "i=63"}}
+	    #:P5StdRefType{:has-modelling-rule
+			   #:IMPL{:ref "i=78"}}
+	    #:P5StdRefType{:component-of
+			   #:IMPL{:ref "i=2197"}}],
+	   :id "i=2200",
+	   :browse-name "ClientDescription",
+	   :parent-node-id "i=2197",
+	   :data-type "i=308"}
+#+end_src
+*** The first interesting thing all day:
+   * Recall that there is somethings :IMPL/:ref in the predicate-symbol position of references!
+     [{#:IMPL{:ref "i=25345"} #:IMPL{:ref "i=25626"}}
+
+#+begin_src clojure
+  #:Node{:type :UAReferenceType,
+	 :display-name "HasPushedSecurityGroup",  ; <========== This the predicate symbol?, it should already exist.
+	 :category "PubSub Model SKS Push",
+	 :documentation
+	 "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
+	 :references
+	 [#:P5StdRefType{:subtype-of #:IMPL{:ref "i=33"}}],
+	 :inverse-name "HasPushTarget",
+	 :id "i=25345",
+	 :browse-name "HasPushedSecurityGroup"}
+
+  #:Node{:type :UAObjectType,
+    :display-name "PubSubKeyPushTargetType",
+    :category "PubSub Model SKS Push",
+    :documentation
+    "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.1",
+    :references
+    [{#:IMPL{:ref "i=25345"} #:IMPL{:ref "i=25626"}}       ; <================ Here is the use. Rewrite as :P5StdRefType/has-pushed-security-group
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25634"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25635"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25340"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25636"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25637"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25638"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25639"}}
+     #:P5StdRefType{:has-property #:IMPL{:ref "i=25640"}}
+     #:P5StdRefType{:has-component
+		    #:IMPL{:ref "i=25641"}}
+     #:P5StdRefType{:has-component
+		    #:IMPL{:ref "i=25644"}}
+     #:P5StdRefType{:has-component
+		    #:IMPL{:ref "i=25647"}}
+     #:P5StdRefType{:subtype-of #:IMPL{:ref "i=58"}}],
+    :id "i=25337",
+    :browse-name "PubSubKeyPushTargetType"}
+#+end_src
+** [2025-04-07 Mon] AM Work: write some access functionality
+   * The following works (sorta):
+#+begin_src clojure
+  (defn resolve-node
+    "Return the form resolved, removing properties in filter-set,
+     a set of db attribute keys, for example, #{:db/id}."
+    [i= db-id & {:keys [depth filter-set] :or {depth 1 filter-set #{}}}]
+    (letfn [(resolve-pull [i=] ; This one gets called recursively in the loop below.
+	      (if (i=? i=)
+		(-> (dp/pull @(connect-atm db-id) '[*] (get-node-eid i= db-id)) (dissoc :db/id :Node/id))
+		i=))]
+      (let [result (loop [obj (resolve-pull i=)
+			  d depth]
+		     (if (zero? d)
+		       obj
+		       (recur (cond (db-ref? obj)     (get-node-i= (:db/id obj) db-id)
+				    (map? obj)        (reduce-kv (fn [m k v] (if (filter-set k) m (assoc m k (resolve-pull v)))) {} obj)
+				    (vector? obj)     (mapv resolve-pull obj)
+				    :else  obj)
+			      (dec d))))]
+	(-> result
+	    (resolve-db-id db-id)
+	    (assoc :Node/id i=)))))
+
+#:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part5/11.2",
+       :type :UAReferenceType,
+       :references [#:P5StdRefType{:subtype-of "i=31"}],
+       :inverse-name "InverseHierarchicalReferences",
+       :id "i=33",
+       :category "Base Info Base Types",
+       :display-name "HierarchicalReferences",
+       :is-abstract? true,
+       :browse-name "HierarchicalReferences"}
+
+#:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
+       :type :UAReferenceType,
+       :references [#:P5StdRefType{:subtype-of #:db{:id 226}}],
+       :inverse-name "HasPushTarget",
+       :category "PubSub Model SKS Push",
+       :display-name "HasPushedSecurityGroup",
+       :browse-name "HasPushedSecurityGroup",
+       :id "i=25345"}
+
+#+end_src
+*** Dead code
+#+begin_src clojure
+
+;;; (dbu/resolve-node "i=25345" :part5)
+(defn resolve-node
+  "Return the form resolved, removing properties in filter-set,
+   a set of db attribute keys, for example, #{:db/id}."
+  [i= db-id & {:keys [depth filter-set] :or {depth 1 filter-set #{}}}]
+  (letfn [(resolve-pull [i=] ; This one gets called recursively in the loop below.
+	    (if (i=? i=)
+	      (-> (dp/pull @(connect-atm db-id) '[*] (get-node-eid i= db-id)) (dissoc :db/id :Node/id))
+	      i=))]
+    (let [result (loop [obj (resolve-pull i=)
+			d depth]
+		   (if (zero? d)
+		     obj
+		     (recur (cond (db-ref? obj)     (get-node-i= (:db/id obj) db-id)
+				  (map? obj)        (as-> obj ?obj
+							(resolve-db-id ?obj db-id)
+							(reduce-kv (fn [m k v] (if (filter-set k) m (assoc m k (resolve-pull v)))) {} ?obj))
+				  (vector? obj)     (mapv resolve-pull obj)
+				  :else  obj)
+			    (dec d))))]
+      (-> result
+	  (resolve-db-id db-id)
+	  (assoc :Node/id i=)))))
+
+
+  (defn resolve-db-id
+    "Recursively replace {:db/id eid} with 'i=<n>'. Special processing of :Node/references."
+    [obj db-id]
+    (letfn [(rdbid [obj]
+	      (cond  (db-ref? obj)   (get-node-i= (:db/id obj) db-id)
+		     (map? obj)      (reduce-kv (fn [m k v]
+						  (if (= k :Node/references)
+						    (assoc m k (mapv #(if (db-ref? %)
+									(get-reference (:db/id %) db-id)
+									%)
+								     v))
+						    (assoc m k (rdbid v))))
+						  {} obj)
+		     (vector? obj)   (mapv rdbid obj)
+		     :else           obj))]
+      (rdbid obj)))
+
+#+end_src
+*** Summary
+   * *crappy day* - It was going so good. But I can't nail dbu/resolve-node !
+     - So many not that crappy, but still, I'm chasing my tail.
+   * _Tomorrow:_ - (not tomorrow)
+     - Rewrite resolve-node from scratch. Simply apply the pull on each depth iteration, then translate the remaining :db/id to i=.
+     - Implement ExtentionObjects.
+     - Implement loading of other node sets.
+     - Implement GraphQL API.
+** [2025-04-11 Fri] Make it public
+   * I'm adding a README.md.
+   * I'm stuck, can't load the system
+     - Also (not the error?) there is warning about *multiple SLF4J providers*.
+error in process sentinel: Could not start nREPL server: SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [com.taoensso.telemere.slf4j.TelemereServiceProvider@56fdb4db]
+SLF4J(W): Found provider [org.slf4j.nop.NOPServiceProvider@e287fd1]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [com.taoensso.telemere.slf4j.TelemereServiceProvider@56fdb4db]
+Exception in thread "main" Syntax error macroexpanding at (ua/part5_schema.clj:1:1).
+   * Note to Olivia about
+*** Dead code (old approach to resolve-node)
+#+begin_src clojure
+;;; ------------------------------------------ resolve-node ---------------------------------------------------------
+(defn db-ref?
+  "It looks to me that a datahike ref is a map with exactly one key: :db/id."
+  [obj]
+  (and (map? obj) (= [:db/id] (keys obj))))
+
+;;; (get-node-eid "i=25345" :part5)
+(defn get-node-eid [i=  db-id] (d/q '[:find ?e  . :in $ ?id   :where [?e   :Node/id ?id]] @(connect-atm db-id) i=))
+(defn get-node-i=  [eid db-id] (d/q '[:find ?id . :in $ ?eid  :where [?eid :Node/id ?id]] @(connect-atm db-id) eid))
+
+;;; I'd like not to need this; it makes a dangerous assumption!
+#_(defn i=? [s] (and (string? s)
+		   (or (re-matches #"^i=\d+$"          s)
+		       (re-matches #"^ns=\d+;i=\d+$"   s)))) ; ToDo: right?
+
+;;; This one gets called once to replace any remaining :db/id.
+(defn ref-ref?
+  "Returns true if the map is something like {:P5StdRefType/:subtype-of 'i=33'}."
+  [obj]
+  (and (map? obj)
+       (== 1 (count obj))
+       (= "P5StdRefType" (-> obj keys first namespace)))) ; ToDo Replace this with a test that the thing is a ReferenceType (maybe not std).
+
+(defn pull-node-with-i=
+  "Pull the object at i=<n>."
+  [i= db-id]
+  (-> (dp/pull @(connect-atm db-id) '[*] (get-node-eid i= db-id))
+      (dissoc :db/id)))
+
+(defn pull-node-with-eid
+  "Pull the object at argument entity-id."
+  [eid db-id]
+  (assert (number? eid))
+  (-> (dp/pull @(connect-atm db-id) '[*] eid)
+      (dissoc :db/id)))
+
+(defn pull-reference [obj db-id]
+  (log! :info (str "pull-reference: obj = " obj))
+  (cond (db-ref? obj) (-> (dp/pull @(connect-atm db-id) '[*] (:db/id obj))
+			  (dissoc :db/id)
+			  #_(dbid2i= db-id))
+	;; ToDo: This assumes the string is i=? true. Would be better were this to come in as a :db/id!
+	(and (ref-ref? obj)
+	     (-> obj vals first db-ref?)) {(-> obj keys first) (-> obj vals first :db/id (pull-node-with-eid db-id))}
+	(map? obj)     obj)) ; It is an expanded reference object.
+
+
+;;; Next 3 could go back into resolve-node once they work!
+;;; Use deeper and walk-final with the REPL to debug.
+(defn walk-references
+  [obj db-id]
+  (cond (db-ref? obj)       (-> obj :db/id (get-node-i= db-id))
+	(map? obj)          (reduce-kv (fn [m k v] (assoc m k (walk-references v db-id))) {} obj)
+	(vector? obj)       (mapv #(walk-references % db-id) obj)
+	:else               obj))
+
+(defn walk-final
+  [obj db-id]
+  (cond (db-ref? obj)     (get-node-i= (:db/id obj) db-id)
+	(map? obj)        (reduce-kv (fn [m k v]
+				       (if (= k :Node/references)
+					 (assoc m k (walk-references v db-id))
+					 (assoc m k (walk-final v db-id))))
+				     {}
+				     obj)
+	(vector? obj)     (mapv #(walk-final % db-id) obj)
+	:else             obj))
+
+(defn deeper
+  [obj db-id]
+  (letfn [(deeper-ref [obj]
+	    (cond (db-ref? obj)          (-> obj :db/id (pull-node-with-eid db-id))
+		  (map? obj)             (reduce-kv (fn [m k v] (assoc m k (deeper-ref v))) {} obj)
+		  (vector? obj)          (mapv deeper-ref obj)
+		  :else                  obj))]
+    (cond (db-ref? obj)     obj
+	  (map? obj)        (reduce-kv (fn [m k v] (cond (= k :Node/id)           m
+							 (= k :Node/references)   (assoc m k (mapv deeper-ref v))
+							 :else                    (assoc m k (deeper v db-id))))
+				       {}
+				       obj)
+	  (vector? obj)     (mapv #(deeper % db-id) obj)
+	  :else             obj)))
+
+;;; ToDo: Still broken (dbu/resolve-node "i=25345" :part5 {:depth 3}) fails.
+;;;       But there's more wrong: I'd like not to use i=? true anywhere. pull-reference assumes it.
+(defn resolve-node
+  "Return the form resolved, removing properties in filter-set,
+   a set of db attribute keys, for example, #{:db/id}."
+  [i= db-id & {:keys [depth] :or {depth 1}}]
+  (letfn []
+     (loop [obj (pull-node-with-i= i= db-id)
+	    d depth]
+       (if (zero? d)
+	 (walk-final obj db-id)
+	 (recur (deeper obj db-id)
+		(dec d))))))
+#+end_src
+*** Summary
+  * =Good day= (Really just a few hours at night)
+  * I overcame a starting problem (see [[file:~/Documents/git/org-notes/software/clojure.org::*Hard bugs (only one so far!)][Hard bugs (only one so far!)]] from Clojure.org) by recalling this situation.
+  * I rewrote dbu/resolve-node.
+  * I wrote README.md and walked through the recommended procedure.
+** [2025-04-12 Sat] I really shouldn't be working on this but...
+  * Also to do: Stop filtering :db/id (except for as Node/id) on dbu/resolve-node
+  * ~(toplevel-make-p5-edn!)~
+  * ~(bp5/make-schema-info)~
+*** Dead code
+#+begin_src clojure
+(defparse :UATypes/ExtensionObject
+  "Return an object network in the UAExtObj namespace.
+   Extension objects, of course, can have anything in them. I have in mind parsing them to nested map structures, stringified,
+   if they vary from what I've seen in Part 5 XML." ; ToDo: Maybe there are parts that belong in ordinary object namespaces?
+  [xmap]
+  (letfn [(ekeys [obj] (cond (map? obj)     (doseq [[k v] obj] (swap! ext-keys conj k) (ekeys v))
+			     (vector? obj)  (doseq [x obj] (ekeys x))))]
+    (-> xmap xml-attrs-as-content ekeys))
+  {:UAExtObj/hey! :extension-obj-nyi})
+#+end_src
+*** Implement ExtensionObject
+   * It looks like I had most of it already (see Dead Code above).
+**** ArrayDimensions can be null!?!
+  * It appears that these null ArrayDimensions element only appear inside a UAVariable, and where they do the UAVariable has an attribute.
+    So.... I think I'll have a dynamic variable that fixes fixes this.
+#+begin_src xml
+  <UAVariable NodeId="i=3112" BrowseName="SessionDiagnosticsArray" ParentNodeId="i=3111" DataType="i=865" ValueRank="1" ArrayDimensions="0">
+    <DisplayName>SessionDiagnosticsArray</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=2196</Reference>
+      <Reference ReferenceType="HasModellingRule">i=78</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">i=3111</Reference>
+    </References>
+  </UAVariable>
+
+  <UAVariable NodeId="i=11490" BrowseName="InputArguments" ParentNodeId="i=11489" DataType="i=296" ValueRank="1" ArrayDimensions="1">
+    <DisplayName>InputArguments</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=68</Reference>
+      <Reference ReferenceType="HasModellingRule">i=78</Reference>
+      <Reference ReferenceType="HasProperty" IsForward="false">i=11489</Reference>
+    </References>
+    <Value>
+      <ListOfExtensionObject xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">
+	<ExtensionObject>
+	  <TypeId>
+	    <Identifier>i=297</Identifier>
+	  </TypeId>
+	  <Body>
+	    <Argument>
+	      <Name>SubscriptionId</Name>
+	      <DataType>
+		<Identifier>i=7</Identifier>
+	      </DataType>
+	      <ValueRank>-1</ValueRank>
+	      <ArrayDimensions />  <!-- But notice that is is also an attribute of the UAVariable! -->
+	    </Argument>
+	  </Body>
+	</ExtensionObject>
+      </ListOfExtensionObject>
+    </Value>
+  </UAVariable>
+#+end_src
+** [2025-05-12 Mon] Ability to read arbitrary profiles
+  * I have about 3 hours to invest in this today.
+*** Dead code (spring cleaning)
+#+begin_src clojure
+   "The process for making a database for a nodeset is to
+     1) Create the 'schema-edn', which the result of running defparse over the nodeset XML.
+     2) Run pro/make-schema-info which creates the datahike schema+ schema, and
+     3) "
+
+
+      (def default-attr-vals
+      {"ValueRank" 0
+       "IsAbstract" false})
+
+      ;;; This one needs thought. Being in Table 17 of Part 3 doesn't seem to mean much.
+    (def part3-attr?
+      "A set/predicate for the Part 3 attributes."
+      (let [res (atom #{})]
+	(doseq [v (vals attr-status)]
+	  (swap! res into (:mandatory v))
+	  (swap! res into (:optional v)))
+	@res))
+
+  ;;; ToDo: isForward, a common XML attribute, is not in this list. Why?
+  (def attr-status-keys
+    "Mandatory and optional attributes of the 8 NodeClasses. This was created from Part 3 Clause 5.9 Table 7. (See https://reference.opcfoundation.org/Core/Part3/v105/docs/5.9)
+     Note that attributes need not be encoded as XML attributes. The commented values are because things can default." ; ToDo: Not all defaults investigated; awaiting clojure specs.
+    {:p5/VariableType  {:mandatory #{:ValueRank :IsAbstract :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
+			:optional #{:AccessRestrictions :RolePermissions :ArrayDimensions :Description :UserRolePermissions :ValueRank}},
+     :p5/View          {:mandatory #{:DisplayName :BrowseName :WriteMask :ContainsNoLoops :EventNotifier :NodeClass :NodeId :UserWriteMask},
+			:optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+     :p5/DataType      {:mandatory #{:IsAbstract :DisplayName :BrowseName :WriteMask :NodeClass :NodeId :UserWriteMask},
+			:optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+     :p5/Object        {:mandatory #{:DisplayName :BrowseName :WriteMask :EventNotifier :NodeClass :NodeId :UserWriteMask},
+			:optional #{:Description}},
+     :p5/Method        {:mandatory #{:DisplayName :BrowseName :WriteMask :UserExecutable :NodeClass :Executable :NodeId :UserWriteMask},
+			:optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+     :p5/Variable      {:mandatory #{:AccessLevel :ValueRank :Historizing :UserAccessLevel :DisplayName :BrowseName :WriteMask :Value :NodeClass :NodeId :UserWriteMask :DataType},
+			:optional #{:UserWriteMaskEx :AccessRestrictions :MinimumSamplingInterval :RolePermissions :ArrayDimensions :WriteMaskEx :Description :UserRolePermissions :AccessLevelEx}},
+     :p5/ObjectType    {:mandatory #{:IsAbstract :DisplayName :BrowseName :WriteMask :NodeClass :NodeId :UserWriteMask},
+			:optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}},
+     :p5/ReferenceType {:mandatory #{:InverseName :IsAbstract :DisplayName :BrowseName :WriteMask :Symmetric :NodeClass :NodeId :UserWriteMask},
+			:optional #{:AccessRestrictions :RolePermissions :Description :UserRolePermissions}}})
+
+  (def attr-status
+    "Same as above but with string values for the :mandatory and :optional sets."
+    (reduce-kv (fn [m k v]
+		 (assoc m k (update-vals v #(->> % (map name) set))))
+	       {}
+	       attr-status-keys))
+
+  (def node-class? #{:p5/DataType :p5/Method :p5/Object :p5/ObjectType :p5/ReferenceType :p5/Variable :p5/VariableType :p5/View})
+
+#+end_src
+*** We aren't done yet!
+   1) +Many things in the XML are not translated in the amb-nodeset.edn.+
+      * No! Most things in a nodeset like this will be of ordinary types.
+	The thing to check for is whether the UADataTypes, UAVariableTypes, etc get stored.
+	Schema-wise, there is just a few new reference types.
+   2) Weird names 1:Contains --> 1:-contains
+   3) It was probably a mistake to  kebab-case ReferenceType names; they are used as data by others.
+
+#+begin_src clojure
+  <UAReferenceType NodeId="ns=1;i=4002" BrowseName="1:Contains" IsAbstract="true">
+    <DisplayName>Contains</DisplayName>
+    <Description>Links an Object representing some type of location to Objects (like assets) located in that location</Description>
+    <Category>AMB Hierarchical Location Objects</Category>
+    <Category>AMB Operational Location Objects</Category>
+    <Documentation>https://reference.opcfoundation.org/AMB/v101/docs/13.1.2</Documentation>
+    <References>
+      <Reference ReferenceType="HasSubtype" IsForward="false">i=33</Reference>
+    </References>
+    <InverseName>LocatedIn</InverseName>
+  </UAReferenceType>
+#+end_src
+** [2026-08-27 Thu] Revisiting this code for possible use in OIDE code
+*** Session with CC
+
+**** Me
+❯ Could you take a look at data/profiles/machineTool/Opc.Ua.MachineTool.NodeSet2.xml and give me a sense of how hard it would be to create a DB for that as outlined in
+  the README.org?
+
+**** Claude
+● Here's where I got to — I ran the whole thing end to end in a scratch directory. Nothing in your repo or your DBs was touched: UAEXP_DB isn't set in my shell, so I
+  pointed it at a temp dir and worked from copies.
+
+  (Side note: there's no README.org — I went by README.md plus the #_(pro/make-profile-db! ...) recipes at the top of src/ua/profiles.clj.)
+
+  Short answer: about half a day. It already almost works.
+
+  I got a fully loaded, queryable MachineTool database. 6425 nodes, ~30 seconds to load. The XML itself is nearly free — it's the second-easiest nodeset you could have
+  picked after AMB. The work is in a few pre-existing potholes on the path, not in MachineTool.
+
+  What MachineTool actually demands
+
+  I diffed its element and attribute vocabulary against P5 ∪ AMB. Across the whole 406KB file, exactly one element type has no defparse: :UATypes/Double. That's it. One
+  line.
+
+  Two more parser adjustments surfaced when I ran it:
+
+  - :UATypes/LocalizedText — MachineTool uses empty <uax:LocalizedText/> as the default value of LocalizedText-typed variables (5 of them). The current defparse in
+    build_part5.clj:338 throws "Unexpected UATypes/LocalizedText" on empty content.
+  - :UATypes/QualifiedName — profiles.clj currently routes this to an : 1 new message (ctrl+End) ↓  AMB, but MachineTool has one nested inside a Value, and
+ :ignore/content has no DB schema (dbu/datahike-schema deliberately drops the ignore namespace), so the transaction fails. Same problem hits the 3 top-level :ignore
+    nodes — they need filtering before load, or the ignore ns needs schema.
+
+  Structurally it's clean: 589 nodes, all in ns=1, and only 12 node ids referenced that live outside the file — into Machinery, Machinery/Jobs, ISA95-JOBCONTROL_V2, and
+  IA. (No DI references at all, despite the RequiredModel.) Ten arrive via HasTypeDefinition/HasSubtype, two via ExtensionObject DataType identifiers. So the
+  companion-spec question is 12 stubs, not six more nodesets — unless you want them for real.
+
+  The actual obstacles (all pre-existing, none MachineTool's fault)
+
+  1. data/part5/p5.edn is stale. Commit a5a755c CamelCased the reference-type idents in part5_schema.clj (:P5StdRefType/HasTypeDefinition), but p5.edn still holds the
+  old kebab-case (:has-type-definition). So (reset! bp5/recreate-db? true) + (p5s/init-part5) — the README's own instructions — fails today with Bad entity attribute
+  :P5StdRefType/has-type-definition. Meanwhile p5-nodeset.edn is byte-identical to what the current code generates. init-part5 (build_part5.clj:377) just points at the
+  wrong file. One-line fix.
+
+  2. A profile DB can't stand alone. Your ToDo at profiles.clj:13 asks whether nodesets need all of Part 5 — the answer is yes, decisively. MachineTool makes 915
+  references into ns=0, and resolve-node-ids throws No DB entry for index: {:i= "i=29"} on the first one. The profile nodeset content has to be appended to P5's before
+  create-ua-db!.
+
+  3. make-profile-db! would clobber your :part5 DB. As written (profiles.clj:48-50) it calls (create-ua-db! {:nodeset ...}) with no :schema and no :db-id — so it
+  defaults to db-id :part5, deletes it, and rebuilds it from the profile's nodeset with only the P5 schema. The learned schema+ file it just wrote is never used. There's
+  also a typo on the line above: (register-db :scheam-key cfg). I'd fix this before anyone runs that commented-out recipe.
+
+  What I verified works
+
+  With those handled, the load is clean and the README's example query reproduces against the combined DB:
+
+  Loaded 6425 nodes.
+  node entities: 6421
+  MachineTool (ns=1) nodes: 589
+  (dbu/resolve-node "i=25345" :machineTool)  ; => identical to README output, CamelCase idents
+
+  One thing worth knowing
+
+  dbu/resolve-node stack-overflows on MachineTool ObjectTypes (e.g. ns=1;i=1002). resolve-db-id follows :db/id refs with no visited-set and no depth bound, and profile
+  instance hierarchies are cyclic through HasComponent/ComponentOf. Sha 1 new message (ctrl+End) ↓  is fine, and it resolves P5 ReferenceTypes fine — those are shallow
+trees.
+
+  I was mid-check on whether this bites P5 object types too (i=2253 Server) when you stopped me, so I can't tell you yet whether it's a latent bug you already have or
+  one that only richer profiles expose. My guess is the former. Either way it's a db_util fix, not a MachineTool one — but it does mean your headline demo query won't
+  work on the interesting MachineTool nodes until it's addressed.
+
+  Suggested order
+
+  1. Point init-part5 at p5-nodeset.edn (or regenerate p5.edn)
+  2. Fix make-profile-db!: pass :schema and :db-id, merge P5 content, fix the :scheam-key typo
+  3. Add the :UATypes/Double defparse; handle empty LocalizedText; decide what QualifiedName should become
+  4. Decide on the 12 external refs — stubs, or pull in Machinery/IA/ISA95/Jobs for real
+  5. Add :machineTool to expected-namespaces (cosmetic — it only warns)
+  6. Separately: give resolve-db-id a visited-set or depth cap
+
+  Want me to make these changes? Steps 1–5 are mechanical and I've already got working versions of each in scratch. Step 6 is a design call I'd rather you weigh in on —
+  a seen set that emits {:db/id n} on revisit, versus honoring the existing :depth argument as a hard bound, give pretty different-shaped output.
+
+✻ Worked for 50s · done 2:02 PM
+
+※ recap: Goal: assess building a DB for the MachineTool nodeset. I ran it end to end in a scratch dir and it works with a few small fixes. Next: tell me whether to apply
+  those fixes to the repo. (disable recaps in /config)
+
+**** Me
+ I'd like to restart claude with the environment variable UAEXP_DB defined, where the p5 and other DBs can be found.
+ [Contrary to what Claude says below suggests, I just define UAEXP_DB in .bashrc and copied the /opt/uaexp from Pendant.]
+
+**** Claude
+● Good news: you don't need to define it — it's already there. ~/.bashrc line 7 has export UAEXP_DB=/opt/uaexp, and that directory holds your DBs:
+
+  /opt/uaexp/part5      (May 12 2025)
+  /opt/uaexp/p5
+  /opt/uaexp/p5-base
+
+  The reason I couldn't see it: my Bash tool runs a non-interactive, non-login shell, and bash only sources .bashrc for interactive shells. bash -c 'echo $UAEXP_DB' →
+  empty; bash -lc 'echo $UAEXP_DB' → /opt/uaexp. So the variable is fine, it just never reached this session's environment.
+
+  Restarting claude from your normal interactive terminal will fix it — the var is already exported in that shell, so the claude process inherits it and every Bash tool
+  subshell inherits it in turn. Verify after restart with ! echo $UAEXP_DB.
+
+  If you'd rather not depend on how the session gets launched, the alternative is env in .claude/settings.json. Say the word and I'll set it up.
+
+  Two things to flag before you restart:
+
+  Your OpenAI key is now in this transcript. I ran head -20 ~/.bashrc to check the guard clause and it printed OPENAI_API_KEY / TEAMING_OPENAI_API_KEY /
+  AZURE_OPENAI_API_KEY in full. Worth rotating.
+
+  Don't run make-profile-db! once UAEXP_DB is live. As written it defaults to db-id :part5, so it would delete and overwrite /opt/uaexp/part5 with MachineTool content —
+  that risk was theoretical while the var was unset, and won't be after you restart. Fix profiles.clj:48-50 first, or work against a scratch UAEXP_DB until it's fixed.
+
+  When you're back, the first thing worth checking is whether /opt/uaexp/part5 is stale: it was built May 12 2025, before commit a5a755c CamelCased the reference-type
+  idents, so it probably has kebab-case attributes (:P5StdRefType/has-type-definition) while the current code expects CamelCase. If so it needs a rebuild — which needs
+  the init-part5 file-path fix from finding #1 first.
+*** Some things I tried last week (restarting REPL so that UAEXP_DB is seen)
+
+user> (ns-setup!)
+nil
+user> (reset! p5s/recreate-db? true)
+Syntax error compiling at (*cider-repl git/uaexp:localhost:41457(clj)*:45:7).
+No such var: p5s/recreate-db?
+user> (reset! bp5/recreate-db? true)
+true
+user> (p5s/init-part5)
+Syntax error compiling at (*cider-repl git/uaexp:localhost:41457(clj)*:50:7).
+No such var: p5s/init-part5
+user> (bp5/init-part5)
+Execution error (ExceptionInfo) at ua.db-util/db-cfg-map (db_util.clj:37).
+Set the environment variable UAEXP_DB to the directory containing UA databases.
+user>  (dbu/resolve-node "i=25345" :part5)
+
+#:Node{:documentation "https://reference.opcfoundation.org/v105/Core/docs/Part14/8.6.6",
+       :type :UAReferenceType,
+*** More discussion, having restarted with UAEXP_DB seen by REPL
+
+ We've just restarted work on the UAEXP project. I have copied over DBs from a different computer (see environment var $UAEXP_DB). There is new info about the project
+  in the folder doc. Could you check whether the part5 DB is stale? You can use clj-nrepl-eval at port 41457.
+
+● I'll start by looking at the project docs and DB setup.
+
+  Searched for 1 pattern, listed 2 directories, ran 2 shell commands
+
+● Now let me check the REPL is live and inspect the :part5 DB's actual attributes.
+
+  Searched for 1 pattern, ran 2 shell commands
+
+● I can bypass the missing env var by building the config explicitly. Let me connect directly to /opt/uaexp/part5 and read its stored schema idents.
+
+  Searched for 3 patterns, listed 1 directory, ran 15 shell commands
+
+● Yes — /opt/uaexp/part5 is stale
+
+  I connected to it directly (bypassing db-cfg-map, see the caveat below) and compared its stored schema against what the current code expects.
+
+  The evidence
+
+  ┌───────────────────────────────┬─────────────────────────────────┬──────────────────┐
+  │                               │ current code (part5_schema.clj) │ /opt/uaexp/part5 │
+  ├───────────────────────────────┼─────────────────────────────────┼──────────────────┤
+  │ schema idents                 │ 205                             │ 205              │
+  ├───────────────────────────────┼─────────────────────────────────┼──────────────────┤
+  │ identical                     │ 68                              │ 68               │
+  ├───────────────────────────────┼─────────────────────────────────┼──────────────────┤
+  │ differing                     │ 137                             │ 137              │
+  ├───────────────────────────────┼─────────────────────────────────┼──────────────────┤
+  │ namespace of every difference │ P5StdRefType                    │ P5StdRefType     │
+  └───────────────────────────────┴─────────────────────────────────┴──────────────────┘
+
+ All 137 differences are the reference types, and they differ exactly by the rename in commit a5a755c (2025-05-12, "CamelCase RefTypes"). The DB holds
+  :P5StdRefType/has-type-definition; the code declares :P5StdRefType/HasTypeDefinition. The 68 non-reference attributes (:Node/*, :Alias/*, :Field/*, …) are unchanged.
+
+  The README's own demo query confirms it live:
+
+  (dbu/resolve-node "i=25345" :part5)
+  ;; :Node/references => [#:P5StdRefType{:subtype-of ...}]   ; want :SubtypeOf
+
+  The data itself is intact — 5820 nodes, 91114 datoms, 64MB. It's only the attribute names that are a generation behind. The DB directory is dated May 12 2025, the same
+  day as the rename commit, so it was built just before the rename landed.
+
+  The rebuild path is blocked (this is finding #1 from the earlier session, now verified): build_part5.clj:381 loads data/part5/p5.edn, which is the pre-rename artifact
+  — 4515 kebab-case has-type-definition keys. data/part5/p5-nodeset.edn, added by a5a755c, has 4518 CamelCase ones. So (reset! bp5/recreate-db? true) + (p5s/init-part5)
+  today rebuilds a DB just as stale as the one you have. Pointing init-part5 at p5-nodeset.edn fixes it.
+
+  The other two DBs
+
+  - /opt/uaexp/p5 — CamelCase idents (current), but 749 datoms and zero nodes. Schema only; no content was ever loaded.
+  - /opt/uaexp/p5-base — empty directory, database-exists? → false.
+
+  So part5 is your only populated DB, and it's the stale one.
+
+  Two things you'll want to know before rebuilding
+
+  1. The REPL at 41457 can't see UAEXP_DB. (System/getenv "UAEXP_DB") returns nil in that JVM, and (mount/running-states) is empty — the system was never started.
+  db-cfg-map would throw. That REPL was launched from a shell without the var, so restarting it from your interactive terminal is needed before init-part5 will work. (I
+  worked around it by constructing the config literally — note that :base-dir "/opt/uaexp" is required in the map or Datahike rejects it as not matching the stored
+  config.)
+
+  2. There's a typo in the rename. Comparing part5_schema.clj against the generated p5-schema+.edn, one ident disagrees:
+
+  - part5_schema.clj:607 — :P5StdRefType/HasKeyValuedDescription
+  - p5-schema+.edn:655 — :P5StdRefType/HasKeyValueDescription ← matches the spec and the DB
+
+  The code's hand-CamelCased version picked up a spurious "d". Its inverse (KeyValueDescriptionOf) and the :uaexp/category string on the same entry are both correct, so
+  it's just that one line. Worth fixing before the rebuild bakes it in.
+
+  Side note on the running REPL: I called (dbu/register-db :part5 <cfg>) and started util-state in it to run the demo query. Read-only, but that entry is now in
+  databases-atm if you keep using that session.
+
+  Want me to make the init-part5 path fix and the typo fix, then rebuild :part5?
+
+*** CC creates src/nsuri.clj to address a shortcoming in the design for our intended first use case
+  * I suggested that the OIDE code ~COOL_T~ tag was a good example for a custom nodeset subtyping 40501-1.
+    The problem is the use of ns=1, ns=2... these don't travel well.
+
+
+   Canonical form is \"<namespace-uri>;<identifier>\", e.g.
+     \"i=25345\"     -> \"http://opcfoundation.org/UA/;i=25345\"
+     \"ns=2;i=26\"   -> \"http://opcfoundation.org/UA/MachineTool/;i=26\"   (in CNC04's file)
+     \"ns=1;i=26\"   -> \"http://opcfoundation.org/UA/MachineTool/;i=26\"   (in MachineTool's own file)
+*** More discussion
+**** CC
+  I read oide (README, the DS, the ds-from-nodeset skill, prefill_core.clj) and probed the boundary empirically. Here's my assessment.
+
+  Where uaexp would actually sit
+
+  One arrow, and it's a design-time arrow:
+
+  nodeset XML ──[ds-from-nodeset skill: human + Claude + mine_nodeset.py]──> DS ──[runtime]──> interview
+	       ↑
+	  uaexp lives here, and nowhere else
+
+  I checked this rather than assumed it: *nothing in oide's runtime reads a nodeset.* Grepping src/ and env/ for nodeset handling returns hits only inside
+  interviewing/domain/, and those are all prose in :description strings. prefill_ascr — the step whose comments say "$llmMatch over the tag list and the nodeset" —
+  actually sends (sdb/get-DS-malli-schema ds-id), the interview objective, and the tag list (prefill_core.clj:120-127). The nodeset isn't in the request. The DS is the
+  nodeset's stand-in at runtime.
+
+  So uaexp cannot make oide's interviews better, and it isn't infrastructure oide is missing. It's leverage on a step oide performs once per standard.
+
+  That framing sets the ceiling. Now the case that the leverage is real anyway.
+
+  The current miner has a structural blind spot, not a cosmetic one
+
+  mine_nodeset.py builds its byid index from one file. Every reference leaving that file resolves to None. Measured on the MachineTool nodeset you both have
+  (byte-identical, same md5):
+
+
+
+  ┌─────────────────────────────────────────────────┬────────────────────────────────────────────────────────┐
+  │                                                 │                                                        │
+  ├─────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ references in the file                          │ 2375                                                   │
+  ├─────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ references whose target is not in the file      │ 929 (39%) — 915 to ns=0, 14 to Machinery/Jobs/ISA95/IA │
+  ├─────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ ObjectTypes whose supertype is outside the file │ 40 of 62                                               │
+  ├─────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ HasModellingRule refs, all leaving the file     │ 407                                                    │
+  └─────────────────────────────────────────────────┴────────────────────────────────────────────────────────┘
+
+  The MODELLING_RULES = {'i=78': 'Mandatory', ...} table at the top of the script is a hand-patch for exactly this — five hardcoded NodeIds standing in for the base
+  namespace. It works because someone knew those five. Nothing patches the other 924.
+
+  The supertype case is worse than the script lets on. It prints the supertype's raw NodeId and the note <- inherited members belong in your DS too, then stops. It
+  cannot chase it. Of the 40 external supertypes, 21 are trivial (BaseObjectType, BaseDataVariableType) — but the rest resolve, against the DB I just rebuilt, to
+  AlarmConditionType, FiniteStateMachineType, TransitionEventType, ProcessConditionClassType, BaseConditionClassType, OrderedListType, plus two into Machinery.
+
+  Take AlarmConditionType (i=2915), which MachineTool subtypes. One query against :part5 walks the chain and collects members:
+
+  AlarmConditionType → AcknowledgeableConditionType → ConditionType → BaseEventType → BaseObjectType
+  60 members, including AckedState, ActiveState, EnabledState, Severity, Retain,
+  ConditionClassId, Quality, LastSeverity, ShelvingState, SuppressedOrShelved …
+
+  mine_nodeset.py sees zero of those 60. And i=78/i=80 come back as real nodes with their Part 5 documentation links rather than a hardcoded string.
+
+  This is precisely the failure your own skill records as already having cost you: "A summary of the spec page said those properties did not exist; the nodeset's
+  HasSubtype reference said otherwise, and the nodeset was right." You caught it that time by reading carefully. The tool didn't catch it, and on 40 of 62 types it
+  structurally can't.
+
+  Two other skill steps become queries rather than judgement calls: Step 4's "cluster by name-stem + datatype + unit" is a Datalog query over a loaded DB, and Step 6's
+  "cross-check the standard's ModellingRule" (with ChannelMode flagged as an open item) becomes checkable rather than remembered.
+
+  _What uaexp does not give you_
+
+  Worth being blunt, because it bounds the payoff.
+
+  The DS's value is :ask, :itr, and the known-ambiguity clusters — which your own table marks implementation experience only, not derivable. uaexp touches none of that.
+  And at 6% Description coverage the nodeset barely carries meanings, so the spec-prose step is unaffected too.
+
+  uaexp improves the cheap, mechanical half of DS authoring. That half is real, and it is where a wrong answer is silent rather than loud — but it is the half you were
+  already least worried about.
+
+  _Why I think it's still worth doing — the F50 argument_
+
+  Your pitch to a standards body is a claim about a boundary: everything above this line a tool regenerates from your nodeset; everything below it only implementation
+  experience supplies, which is why you should publish a DS.
+
+  An 84-line Python script that can't follow inheritance across a namespace makes the top half of that table look aspirational. A loaded, queryable graph where "every
+  member of this type, including inherited, with its ModellingRule" is one query makes it demonstrable — live, in the room, on their nodeset rather than yours. The
+  argument stops being "we assert this is mechanical" and becomes "watch."
+
+  That's the strongest reason, and it's a rhetorical one rather than an engineering one. Given that F50 is the audience, I don't think that makes it weaker.
+
+  Costs, honestly
+
+  uaexp is about two weeks of exploratory code. It has no API, dead code in several files, build_part5_test.clj hasn't compiled since May 2025, and the profile path is
+  actively hazardous — make-profile-db! still defaults to :db-id :part5 and would delete the DB we just rebuilt.
+
+  There's also a live bug directly on the path you'd use. While gathering the numbers above I called resolve-node on those ObjectTypes and got a StackOverflowError — the
+  cyclic-hierarchy issue from the earlier session, now confirmed on Part 5 types, not just MachineTool ones. It's latent in what you already have. I worked around it
+  with raw queries, which is why the member walk above still ran.
+
+  Getting a combined P5+MachineTool DB is roughly the half-day the earlier session estimated (the fixes are enumerated in your log), plus the resolve-db-id visited-set
+  decision, which is a design call I'd still want your input on.
+
+  _Recommendation_
+
+  Worth doing, at a bounded scope, and not as a merge.
+
+  Keep uaexp a design-time tool that emits EDN which ds-from-nodeset consumes — replace mine_nodeset.py's extraction with uaexp output, leave the skill's judgement steps
+  exactly as they are. oide gains no runtime dependency, no Datahike coupling, and the DS files stay hand-authored. If uaexp is unavailable, the skill degrades to what
+  it does today.
+
+  Do it if either of these is true: you intend a second standard, or the extend-by-subtyping-in-the-operator's-namespace question in :disposition is going to be
+  demonstrated. That second one is the sharper case — subtyping in a private namespace is multi-nodeset composition, and a single-file byid index cannot represent it at
+  all. Your :disposition note already frames it as the next design question.
+
+  If it stays one standard, one DS, already authored and validated over six interviews — skip it. The DS you have doesn't get better from being re-derived.
+
+  One question that changes the scope: for F50, are you demonstrating the method on 40501-1, or do you need to show it transferring to a second standard? Transfer is the
+  version where uaexp earns its keep; a single polished case is the version where I'd leave uaexp alone.
+
+
+**** Me
+❯ I assume by "second standard" you mean second nodeset. Yes, I would have many nodesets, including some subtyping the standard ones.
+
+**** Claude
+
+● That changes the picture — composition becomes the central requirement, not a bonus. Let me check whether uaexp's design actually supports it, because OPC UA namespace
+  indices are file-local and that's where this usually breaks.
+
+ _What the fix actually is_
+
+  Four pieces, all mechanical once the decision below is made:
+
+  1. Capture <NamespaceUris> instead of discarding it — build a per-file index→URI map. ns=0 is implicit (http://opcfoundation.org/UA/) and never appears in the list, so
+     index i is uris[i-1].
+  2. Canonicalize at load — rewrite every NodeId and every reference target from the file's local index to the canonical form. Reference targets matter as much as the
+     ids; missing them just relocates the bug.
+  3. Order loads by RequiredModel — it's a real DAG, and it's declared, so you don't have to guess.
+  4. resolve-db-id needs the visited-set before this is usable on profiles. I hit the StackOverflowError live while gathering these numbers — it fired on Part 5
+     ObjectTypes, not just MachineTool ones, so it's latent in what you have and instance hierarchies in operator extensions will make it routine.
+
+  On representation — you asked me for recommendations rather than surveys, so: keep :Node/id a string and make it "http://opcfoundation.org/UA/MachineTool/;i=1002".
+  Datahike's tuple support is thinner than Datomic's and I'd rather not stake the identity model on it; a canonical string keeps :db/unique :db.unique/identity and
+  lookup-ref working unchanged. Add :Node/namespace-uri and :Node/local-id alongside as separately queryable attributes so Datalog stays pleasant.
+
+  One consequence worth accepting deliberately: Part 5 ids become "http://opcfoundation.org/UA/;i=25345", which breaks your README demo query. Have resolve-node treat a
+  bare "i=25345" as base-UA shorthand — the demo keeps working, and the shorthand is what people will type anyway.
+
+  Revised estimate
+
+  The earlier half-day was for MachineTool as a one-off against a P5 DB, and it did not account for any of this. For the foundation you actually want:
+
+  ┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────┐
+  │                                                                                                                               │                                  │
+  ├───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+  │ namespace canonicalization + reference rewrite                                                                                │ ~1 day                           │
+  ├───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+  │ RequiredModel-ordered multi-nodeset load                                                                                      │ ~half day                        │
+  ├───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+  │ resolve-db-id visited-set                                                                                                     │ a few hours, plus your design    │
+  │                                                                                                                               │ call                             │
+  ├───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+  │ the parser gaps from the earlier session (:UATypes/Double, empty LocalizedText, QualifiedName, make-profile-db! and its       │ ~half day                        │
+  ├───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────┤
+  │ pulling in Machinery / DI / IA / ISA95 / Jobs                                                                                 │ mostly load time, unknown until  │
+  │                                                                                                                               │ run                              │
+  └───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────┘
+
+  Call it two to three days to a DB that holds Part 5 plus MachineTool plus its companions, with room for an operator extension on top.
+  Still cheap for what it unlocks,   and the risk is now identified rather than lurking.
+
+
+  I'd still keep it a design-time tool emitting EDN for ds-from-nodeset, with no runtime coupling into oide. Nothing here changes that.
+
+  One question before I start
+
+  The :db.type/tuple alternative is the only real fork, and I've told you which way I'd go. The question I'd rather have your answer on is scope: do you want the
+  operator-extension case exercised now — meaning I write a small synthetic nodeset that subtypes a 40501-1 type in a private namespace and prove it loads and resolves —
+  or should I get Part 5 + MachineTool + companions solid first and leave extension for when you have a real one?
+
+  I'd argue for the synthetic one now. It's an hour, it's the case the whole design exists to serve, and if the identity model is wrong you find out on a file you can
+  edit rather than on the operator's.
+
+**** Me
+
+Okay, let's do the synthetic one now. If you look at the project ~/Documents/git/oide/data/projects/cnc04-run10/ you will see that COOL_T is a tag that isn't
+supported in 40501-1. Ideally your small synthetic nodeset would address that.
+
+**** Claude
+
+ Done. The synthetic extension loads and resolves, and the identity model held up — after being fixed.
+
+  The fixture
+
+  data/profiles/cnc04/CNC04.NodeSet2.xml — an operator's local extension in http://example-machineworks.com/UA/CNC04/, subtyping 40501-1's MachineOperationMonitoringType
+  and adding CoolantTemperature (Double, AnalogUnitRangeType, Optional, with EngineeringUnits and EURange). That's a real home for CNC04_COOL_T, acting on run 10's
+  :disposition :propose-model-extension.
+
+  I made it adversarial on purpose. Its ns=1;i=1002 is a live NodeId in MachineTool's own file, where it's ObligationType. And its supertype reference is written
+  ns=2;i=26 where MachineTool writes the same node ns=1;i=26.
+
+  It broke exactly where predicted, then worked
+
+  The collision was real, not theoretical:
+
+  MachineTool  http://opcfoundation.org/UA/MachineTool/;i=1002   -> 1:ObligationType                        (eid 31239)
+  CNC04        http://example-machineworks.com/UA/CNC04/;i=1002  -> 1:CNC04MachineOperationMonitoringType   (eid 34627)
+
+  Two entities. Before canonicalization those were one, silently.
+
+  The inheritance walk crosses three namespaces and terminates in the right place:
+
+  1:CNC04MachineOperationMonitoringType   http://example-machineworks.com/UA/CNC04/
+  1:MachineOperationMonitoringType        http://opcfoundation.org/UA/MachineTool/
+  BaseObjectType                          http://opcfoundation.org/UA/
+
+  members: CoolantTemperature · FeedOverride · IsWarmUp · Obligation · OperationMode · PowerOnDuration
+
+  40501-1's five plus the shop's one. And CoolantTemperature's own references resolve outward correctly — HasTypeDefinition → AnalogUnitRangeType (ns=0),
+  HasModellingRule → Optional (ns=0, the node mine_nodeset.py hardcodes), ComponentOf back to the CNC04 type.
+
+  The composed DB :cnc04 holds 6425 nodes: 5820 base UA, 589 MachineTool, 4 CNC04, 12 stubs. CNC04 needed zero stubs — everything the extension referenced was already
+  present. That's the answer to the design question: an operator extension is just another nodeset with a RequiredModel edge, no special case.
+
+  MachineTool's 12 stubs (Machinery, IA, ISA95-JOBCONTROL_V2, Machinery/Jobs) are because I don't have those files locally. load-stubs! returns them so the caller can
+  report them — a silent stub would be a false coverage claim.
+
+
+  _What I changed_
+
+  src/ua/nsuri.clj is new — canonicalization to <namespace-uri>;<identifier>, plus the index->uri table built from <NamespaceUris> with index 0 implicit. Six other
+  files, ~154 lines:
+
+  - profiles.clj — :p5/NamespaceUris now captured instead of discarded (its docstring said "We aren't using these, currently"; it was the disambiguator).
+    :UATypes/QualifiedName given a real parse rather than being ignored, since it carries a namespace index with the same hazard. Added make-composed-db! and
+    load-stubs!.
+  - putil.clj — load-nodeset! canonicalizes and drops :ignore nodes.
+  - part5_schema.clj — :Node/namespace-uri, :Node/local-id, :P3QualifiedName/*, :NodeSet/namespace-uris.
+  - build_part5.clj — :UATypes/Double; empty <LocalizedText/> handled.
+  - db_util.clj — get-node-eid accepts bare "i=25345" as base-UA shorthand, so the README demo still reads the same; cycle guard in resolve-db-id.
+  - db_util_test.clj — expected literal updated for the canonical id and two new attributes. Suite passes.
+
+  :part5 was rebuilt again (canonical ids now) and :cnc04 is new, 101MB.
+
+  One thing I got wrong, and it's your design call
+
+  I proposed the visited-set for resolve-db-id and said the depth cap was the alternative. Having built it: the visited set alone is not enough. It stops the
+  StackOverflowError — that part works — but resolve-node on CoolantTemperature still didn't finish in 120s.
+
+  The reason is breadth, not cycles. I instrumented the walk: 9364 entities are reachable from that one leaf variable. In a loaded profile, essentially the whole DB is
+  reachable from anywhere, and each entity costs a pull plus a query in walk-final. The existing :depth argument doesn't help — it bounds how many deeper passes run
+  after resolve-db-id, not resolve-db-id itself, which is the unbounded one.
+
+  So you need the depth bound, and the visited set on top of it for the cycles. I've left the visited set in (it's necessary and correct) and haven't added the bound,
+  because how it should present is genuinely your call: hard-truncate to {:db/id n} at depth n, or resolve to the node's id string so the output stays readable. I'd take
+  the id string — a {:db/id 31239} in output is meaningless outside the DB session, whereas "http://opcfoundation.org/UA/MachineTool/;i=26" still tells you what you
+  hit. Say which and I'll do it.
+
+  Two smaller notes: p5-schema+.edn and the code's schema now differ by the four attributes I added, deliberately — those are uaexp's, not learned from the nodeset. And
+  make-profile-db! still has the :db-id :part5 clobber hazard and the :scheam-key typo; I added make-composed-db! alongside rather than touching it, so that's still
+  live.

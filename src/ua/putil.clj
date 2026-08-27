@@ -6,6 +6,7 @@
    [datahike.api                :as d]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.db-util                  :as dbu :refer [connect-atm datahike-schema db-cfg-map register-db]]
+   [ua.nsuri                    :as nsuri]
    [ua.part5-schema             :refer [part5-schema part5-schema+]]
    [ua.xml-util                 :as xu]))
 
@@ -244,10 +245,16 @@
   "Read the part5 edn into the DB. This is two-staged, wherein the first stage creates lookups,
    and the second stage loads the full object."
   [db-id nodeset]
-  (reset! nodeset-memo nodeset)
-  (load-lookups! db-id nodeset)
-  (log! :info (str "Loading " (-> nodeset :NodeSet/content count) " nodes."))
-  (let [cnt (atom 0)]
+  (let [nodeset (-> nodeset
+                    nsuri/canonicalize-nodeset
+                    ;; :ignore nodes (a vendor tool's <Extensions>, so far) have no schema by
+                    ;; design -- dbu/datahike-schema drops the namespace -- so they cannot be
+                    ;; transacted. Drop them here rather than giving the namespace a schema.
+                    (update :NodeSet/content #(filterv (fn [n] (not= :ignore (:Node/type n))) %)))
+        cnt (atom 0)]
+    (reset! nodeset-memo nodeset)
+    (load-lookups! db-id nodeset)
+    (log! :info (str "Loading " (-> nodeset :NodeSet/content count) " nodes."))
     (loop [nodes (:NodeSet/content  nodeset)]
       (let [[these others] (split-at 50 nodes)]
         (when (not-empty these)
@@ -256,7 +263,7 @@
           (recur others))))
     (log! :info (str "Loaded " @cnt " nodes."))))
 
-(defn jpcreate-ua-db!
+(defn create-ua-db!
   "Create a part5 database from an EDN file. Every UA DB would start with this.
    If schema is provided it is merged with the part5 schema."
   [& {:keys [schema nodeset db-id] :or {schema {} db-id :part5}}]

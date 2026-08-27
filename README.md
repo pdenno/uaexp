@@ -53,7 +53,7 @@ Next time you start, you'll only have to do the first line of this:
 
 ```
 (develop.repl/ns-setup!)          ; Provides namespace aliases.
-(reset! p5s/recreate-db? true)    ; Allow recreation of a DB with only part 5 in it.
+(reset! bp5/recreate-db? true)    ; Allow recreation of a DB with only part 5 in it.
 (p5s/init-part5)                  ; Create that database.
 ```
 Expect the following output:

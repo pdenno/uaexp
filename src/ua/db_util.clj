@@ -4,6 +4,7 @@
    [datahike.api          :as d]
    [datahike.pull-api     :as dp]
    [taoensso.telemere     :as log :refer [log!]]
+   [ua.nsuri              :as nsuri]
    [ua.util               :as util :refer [util-state]]))   ; For mount
 
 (defonce databases-atm (atom {}))
@@ -96,7 +97,16 @@
   (and (map? obj) (= [:db/id] (keys obj))))
 
 ;;; (dbu/get-node-eid "i=25345" :part5)
-(defn get-node-eid [i=  db-id] (d/q '[:find ?e  . :in $ ?id   :where [?e   :Node/id ?id]] @(connect-atm db-id) i=))
+(defn get-node-eid
+  "Return the entity id of the node named. :Node/id is canonical (<namespace-uri>;<local-id>),
+   but a bare NodeId such as \"i=25345\" is accepted as shorthand for the base UA namespace,
+   which is what one types at the REPL and what Part 5's own documentation uses."
+  [i= db-id]
+  (let [db @(connect-atm db-id)
+        by-id (fn [id] (d/q '[:find ?e . :in $ ?id :where [?e :Node/id ?id]] db id))]
+    (or (by-id i=)
+        (when-not (nsuri/canonical? i=)
+          (by-id (str nsuri/base-uri ";" i=))))))
 (defn get-node-i=  [eid db-id] (d/q '[:find ?id . :in $ ?eid  :where [?eid :Node/id ?id]] @(connect-atm db-id) eid))
 
 (defn resolve-db-id
@@ -105,11 +115,16 @@
   [form db-id & {:keys [keep-set drop-set]
                  :or {drop-set #{:db/id}
                       keep-set #{}}}]
-  (let [conn @(connect-atm db-id)]
+  (let [conn @(connect-atm db-id)
+        seen (atom #{})]      ; Instance hierarchies are cyclic (HasComponent/ComponentOf), so a
+                              ; ref already being resolved is emitted as {:db/id n} rather than followed.
     (letfn [(resolve-aux [obj]
               (cond
-                (db-ref? obj) (let [res (dp/pull conn '[*] (:db/id obj))]
-                                (if (= res obj) nil (resolve-aux res)))
+                (db-ref? obj) (if (@seen (:db/id obj))
+                                obj
+                                (let [_ (swap! seen conj (:db/id obj))
+                                      res (dp/pull conn '[*] (:db/id obj))]
+                                  (if (= res obj) nil (resolve-aux res))))
                 (map? obj) (reduce-kv (fn [m k v]
                                         (cond (drop-set k)                                    m
                                               (and (not-empty keep-set) (not (keep-set k)))   m

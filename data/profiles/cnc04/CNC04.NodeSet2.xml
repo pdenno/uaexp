@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SYNTHETIC nodeset. Not published by any SDO, not a real plant's model.
+
+  Purpose: exercise the case oide's :disposition :propose-model-extension names — an operator
+  extending a companion specification by subtyping in THEIR OWN namespace, locally, now, rather
+  than waiting for a future version of the standard to grow a home.
+
+  The tag it gives a home to is CNC04_COOL_T from data/projects/cnc04-run10: coolant temperature,
+  which the expert watches as a tool-wear tell and which stock OPC 40501-1 has no slot for. Run 10
+  recorded it in :unhomed-tags with :disposition :propose-model-extension. This file is what
+  acting on that disposition looks like.
+
+  Three properties are deliberate, and each one is a test of node identity across nodesets:
+
+    1. This file's ns=1 is CNC04's namespace. MachineTool's own file uses ns=1 for MachineTool.
+    2. ns=1;i=1002 below is ALSO a live NodeId in MachineTool's file, where it is ObligationType.
+       Any loader keying nodes on the literal NodeId string merges the two.
+    3. The supertype reference below is ns=2;i=26 in THIS file and ns=1;i=26 in MachineTool's.
+       Same node, different index. Resolving it requires the NamespaceUris table, not the index.
+-->
+<UANodeSet xmlns="http://opcfoundation.org/UA/2011/03/UANodeSet.xsd"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <NamespaceUris>
+    <Uri>http://example-machineworks.com/UA/CNC04/</Uri>
+    <Uri>http://opcfoundation.org/UA/MachineTool/</Uri>
+  </NamespaceUris>
+
+  <Models>
+    <Model ModelUri="http://example-machineworks.com/UA/CNC04/"
+           Version="0.1.0"
+           PublicationDate="2026-08-27T00:00:00Z">
+      <RequiredModel ModelUri="http://opcfoundation.org/UA/"
+                     Version="1.05.02" PublicationDate="2025-01-08T00:00:00Z"/>
+      <RequiredModel ModelUri="http://opcfoundation.org/UA/MachineTool/"
+                     Version="1.02.0" PublicationDate="2024-11-01T00:00:00Z"/>
+    </Model>
+  </Models>
+
+  <Aliases>
+    <Alias Alias="Double">i=11</Alias>
+    <Alias Alias="HasModellingRule">i=37</Alias>
+    <Alias Alias="HasTypeDefinition">i=40</Alias>
+    <Alias Alias="HasSubtype">i=45</Alias>
+    <Alias Alias="HasProperty">i=46</Alias>
+    <Alias Alias="HasComponent">i=47</Alias>
+    <Alias Alias="Range">i=884</Alias>
+    <Alias Alias="EUInformation">i=887</Alias>
+  </Aliases>
+
+  <!-- Subtype of 40501-1's MachineOperationMonitoringType (ns=2;i=26 here, ns=1;i=26 there).
+       Inherits FeedOverride, IsWarmUp, Obligation, OperationMode, PowerOnDuration and adds one
+       member the standard does not define. -->
+  <UAObjectType NodeId="ns=1;i=1002" BrowseName="1:CNC04MachineOperationMonitoringType">
+    <DisplayName>CNC04MachineOperationMonitoringType</DisplayName>
+    <Description>NOT FROM THE STANDARD. Machine-level monitoring for CNC04, extending OPC 40501-1's MachineOperationMonitoringType with the one quantity this shop monitors that 40501-1 does not model.</Description>
+    <Category>CNC04 Local Extension</Category>
+    <References>
+      <Reference ReferenceType="HasComponent">ns=1;i=6001</Reference>
+      <Reference ReferenceType="HasSubtype" IsForward="false">ns=2;i=26</Reference>
+    </References>
+  </UAObjectType>
+
+  <UAVariable NodeId="ns=1;i=6001" BrowseName="1:CoolantTemperature"
+              ParentNodeId="ns=1;i=1002" DataType="Double">
+    <DisplayName>CoolantTemperature</DisplayName>
+    <Description>NOT FROM THE STANDARD. Temperature of the cutting fluid as delivered to the cut. Watched as a tool-wear indicator: a rise across a shift tends to accompany insert wear. Source tag CNC04_COOL_T (REAL, degC). Optional because the shop does not require every machine to expose it.</Description>
+    <Category>CNC04 Local Extension</Category>
+    <References>
+      <Reference ReferenceType="HasModellingRule">i=80</Reference>
+      <Reference ReferenceType="HasTypeDefinition">i=17570</Reference>
+      <Reference ReferenceType="HasProperty">ns=1;i=6002</Reference>
+      <Reference ReferenceType="HasProperty">ns=1;i=6003</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1002</Reference>
+    </References>
+  </UAVariable>
+
+  <UAVariable NodeId="ns=1;i=6002" BrowseName="EngineeringUnits"
+              ParentNodeId="ns=1;i=6001" DataType="EUInformation">
+    <DisplayName>EngineeringUnits</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=68</Reference>
+      <Reference ReferenceType="HasModellingRule">i=78</Reference>
+      <Reference ReferenceType="HasProperty" IsForward="false">ns=1;i=6001</Reference>
+    </References>
+  </UAVariable>
+
+  <UAVariable NodeId="ns=1;i=6003" BrowseName="EURange"
+              ParentNodeId="ns=1;i=6001" DataType="Range">
+    <DisplayName>EURange</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=68</Reference>
+      <Reference ReferenceType="HasModellingRule">i=78</Reference>
+      <Reference ReferenceType="HasProperty" IsForward="false">ns=1;i=6001</Reference>
+    </References>
+  </UAVariable>
+
+</UANodeSet>

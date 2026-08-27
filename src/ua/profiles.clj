@@ -7,7 +7,8 @@
    [datahike.api                :as d]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.p5-cardinality           :as p5-card]
-   [ua.db-util                  :as dbu :refer [db-cfg-map register-db]]
+   [ua.db-util                  :as dbu :refer [connect-atm db-cfg-map register-db]]
+   [ua.nsuri                    :as nsuri]
    [ua.putil                    :as pu :refer [defparse learn-schema-basic write-nodeset-edn! create-ua-db!]]))
 
 ;;; ToDo: Decide whether nodesets need to include all of Part 5 or only the parts they use.
@@ -32,6 +33,64 @@
                          :nodeset-edn-file "data/profiles/amb/amb-nodeset.edn"
                          :schema+-file     "data/profiles/amb/amb-schema+.edn"})
 
+(defn nodeset-ids
+  "Return the set of canonical :Node/id defined by the (canonicalized) nodeset."
+  [nodeset]
+  (->> nodeset :NodeSet/content (keep :Node/id) set))
+
+(defn nodeset-refs
+  "Return the set of canonical ids the (canonicalized) nodeset references."
+  [nodeset]
+  (let [found (atom #{})]
+    (letfn [(nr [obj]
+              (cond (and (map? obj) (contains? obj :IMPL/ref)) (swap! found conj (:IMPL/ref obj))
+                    (map? obj)    (doseq [[k v] obj] (nr k) (nr v))
+                    (vector? obj) (doseq [x obj] (nr x))))]
+      (nr nodeset)
+      @found)))
+
+(defn load-stubs!
+  "Transact a placeholder for every id the nodeset references but neither defines nor finds in
+   the DB. These are references into companion specifications we have not loaded. A stub carries
+   its canonical id and nothing else, so it resolves without pretending to know what it is.
+   Returns the stubbed ids, which the caller should report -- a silent stub is a lie about coverage."
+  [db-id nodeset]
+  (let [defined (nodeset-ids nodeset)
+        conn (connect-atm db-id)
+        missing (->> (nodeset-refs nodeset)
+                     (remove defined)
+                     (remove #(d/q '[:find ?e . :in $ ?id :where [?e :Node/id ?id]] @conn %))
+                     set)]
+    (when (not-empty missing)
+      (log! :warn (str "Stubbing " (count missing) " reference(s) into nodesets that are not loaded."))
+      (d/transact conn {:tx-data (mapv (fn [id]
+                                         (let [[uri local] (nsuri/split-id id)]
+                                           {:Node/id id
+                                            :Node/namespace-uri uri
+                                            :Node/local-id local
+                                            :Node/browse-name local
+                                            :Node/type :stub}))
+                                       missing)}))
+    missing))
+
+(defn ^:admin make-composed-db!
+  "Create a DB holding several nodesets, which is what any companion specification needs: its
+   own content plus everything it references. Arguments:
+     :db-id    - keyword naming the DB
+     :nodesets - EDN nodeset files IN DEPENDENCY ORDER (each <Model>'s <RequiredModel> first).
+     :schema   - schema+ to merge with Part 5's, or nil.
+   Returns {:stubs {<nodeset-file> #{<canonical-id> ...}}} -- ids referenced but not loaded."
+  [{:keys [db-id nodesets schema]}]
+  (let [[first-file & rest-files] nodesets
+        report (atom {})]
+    (create-ua-db! (cond-> {:db-id db-id :nodeset (-> first-file slurp edn/read-string)}
+                     schema (assoc :schema schema)))
+    (doseq [f rest-files]
+      (let [nodeset (-> f slurp edn/read-string nsuri/canonicalize-nodeset)]
+        (swap! report assoc f (load-stubs! db-id nodeset))
+        (pu/load-nodeset! db-id nodeset)))
+    {:stubs @report}))
+
 (defn ^:admin  make-profile-db!
   "Create a Part5-based DB for the argument node set. Arguments:
      :xml-file  - the XML file defining the nodeset
@@ -52,12 +111,10 @@
 
 ;;; --------- These were encountered in nodesets other than Part 5. (Just AMB so far.)
 (defparse :p5/NamespaceUris
-  "We aren't using these, currently."
+  "Return the nodeset's namespace table. These are what make a NodeId's ns=<index> meaningful:
+   the index is file-local, the URI is not. See ua.nsuri."
   [xmap]
-  (let [n {:Node/type :ignore
-           :ignore/content (str xmap)}]
-    (swap! ignored-nodes conj n)
-    n))
+  {:NodeSet/namespace-uris (->> xmap :xml/content (mapv :xml/content))})
 
 (defparse :p5/Extensions
   "There is one of these in AMB, for example, it is a reference to the tool that built the profile."
@@ -68,12 +125,13 @@
     n))
 
 (defparse :UATypes/QualifiedName
-  "These are found in AMB, but not P5."
-  [xmap]
-    (let [n {:Node/type :ignore
-             :ignore/content (str xmap)}]
-    (swap! ignored-nodes conj n)
-    n))
+  "A QualifiedName is a name scoped by a namespace index. Found in AMB and MachineTool, not P5.
+   The index is file-local, so ua.nsuri rewrites :P3QualifiedName/namespace-uri at load."
+  [{:xml/keys [content]}]
+  (let [part (fn [tag] (some #(when (= tag (:xml/tag %)) (:xml/content %)) content))]
+    (cond-> {:P3QualifiedName/name (or (part :UATypes/Name) "")}
+      (part :UATypes/NamespaceIndex) (assoc :IMPL/namespace-index
+                                            (parse-long (part :UATypes/NamespaceIndex))))))
 
 ;;; --------------------------------- Stuff for making schema from schema-edn -----------------------------------
 (defn make-p5-std-ref-type-schema

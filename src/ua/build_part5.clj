@@ -331,21 +331,27 @@
 (defparse :UATypes/Boolean       "doc" [{:xml/keys [content]}]  (-> content edn/read-string))
 (defparse :UATypes/ByteString    "doc" [{:xml/keys [content]}]  {:P6ByteString/str content})    ; ToDo Rethink these.
 (defparse :UATypes/DateTime      "doc" [{:xml/keys [content]}]  (instant/read-instant-date content))
+(defparse :UATypes/Double        "doc" [{:xml/keys [content]}]  (-> content edn/read-string double))
 (defparse :UATypes/Int32         "doc" [{:xml/keys [content]}]  (-> content edn/read-string int))
 (defparse :UATypes/String        "doc" [{:xml/keys [content]}]  (if content content ""))
 (defparse :UATypes/UInt32        "doc" [{:xml/keys [content]}]  (-> content edn/read-string int)) ; ToDo Box? What can DB do?
 
 (defparse :UATypes/LocalizedText "doc" [{:xml/keys [content] :as _xmap}]
-  (when-not (and (every?  #(#{:UATypes/Text :UATypes/Locale} %) (map :xml/tag content))
-                 (<= 2 (-> content first count)))
-    (throw (ex-info "Unexpected UATypes/LocalizedText" {:xmap _xmap})))
-  ;; Other things need :UATypes/Text and :UATypes/Locale as structure; this doesn't.
-  (let [Text   (some #(when (= :UATypes/Text   (:xml/tag %)) %) content)
-        Locale (some #(when (= :UATypes/Locale (:xml/tag %)) %) content)
-        text    (-> Text  (rewrite-xml :UATypes/Text) :UATypes/Text)
-        locale  (when Locale (-> Locale (rewrite-xml :UATypes/Locale) :UATypes/Locale))]
-    (cond-> {:P3LocalizedText/str text}
-      locale (assoc :P3LocalizedText/locale locale))))
+  ;; An empty element, <LocalizedText/>, is how a nodeset writes the default value of a
+  ;; LocalizedText-typed variable. MachineTool has 5 of them; Part 5 has none.
+  (if (empty? content)
+    {:P3LocalizedText/str ""}
+    (do
+      (when-not (and (every?  #(#{:UATypes/Text :UATypes/Locale} %) (map :xml/tag content))
+                     (<= 2 (-> content first count)))
+        (throw (ex-info "Unexpected UATypes/LocalizedText" {:xmap _xmap})))
+      ;; Other things need :UATypes/Text and :UATypes/Locale as structure; this doesn't.
+      (let [Text   (some #(when (= :UATypes/Text   (:xml/tag %)) %) content)
+            Locale (some #(when (= :UATypes/Locale (:xml/tag %)) %) content)
+            text    (-> Text  (rewrite-xml :UATypes/Text) :UATypes/Text)
+            locale  (when Locale (-> Locale (rewrite-xml :UATypes/Locale) :UATypes/Locale))]
+        (cond-> {:P3LocalizedText/str text}
+          locale (assoc :P3LocalizedText/locale locale))))))
 
 ;;; --------------------------- Lists ---------------------------------------------------------------
 (defparse :UATypes/ListOfExtensionObject
@@ -378,7 +384,7 @@
     (register-db :part5 cfg)
     (when @recreate-db?
       (when (d/database-exists? cfg) (d/delete-database cfg))
-      (create-ua-db! {:nodeset (-> "data/part5/p5.edn" slurp edn/read-string)})))
+      (create-ua-db! {:nodeset (-> "data/part5/p5-nodeset.edn" slurp edn/read-string)})))
   {:part5-config @(connect-atm :part5)})
 
 (defstate part5

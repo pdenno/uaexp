@@ -98,6 +98,15 @@
         :valueType :db.type/string,
         :unique :db.unique/identity}
 
+   ;;; :Node/namespace-uri and :Node/local-id are uaexp's, not the standard's. :Node/id is
+   ;;; canonicalized to "<namespace-uri>;<local-id>" (see ua.nsuri) because a NodeId's ns=<index>
+   ;;; is file-local and collides across nodesets. These two hold the parts, separately queryable.
+   :Node/namespace-uri
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :Node/local-id
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
    :Node/inverse-name
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
@@ -148,12 +157,27 @@
    :NodeSet/models
    #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref}
 
+   ;;; The nodeset's <NamespaceUris>, kept as provenance: it is what ua.nsuri used to canonicalize
+   ;;; this nodeset's NodeIds, so it records how the file's ns=<index> were read.
+   :NodeSet/namespace-uris
+   #:db{:cardinality :db.cardinality/many, :valueType :db.type/string}
+
 
    ;; --------------------------- P3LocalizedText
    :P3LocalizedText/locale
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
    :P3LocalizedText/str
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+
+   ;; --------------------------- P3QualifiedName
+   ;; The namespace index here is the one written in the file that carried the value; it is
+   ;; resolved to a URI at load, for the same reason NodeIds are. (See ua.nsuri.)
+   :P3QualifiedName/name
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :P3QualifiedName/namespace-uri
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
 
@@ -604,7 +628,7 @@
     :db/doc "https://reference.opcfoundation.org/v105/Core/docs/Part5/11.20",
     :uaexp/category "Address Space Interfaces"}
 
-   :P5StdRefType/HasKeyValuedDescription
+   :P5StdRefType/HasKeyValueDescription
    {:db/valueType :db.type/ref,
     :db/cardinality :db.cardinality/one,
     :uaexp/id "i=32407",
