@@ -220,7 +220,7 @@
 (def edn-memo "Keep the Part 5 structure so you don't have to slurp and read-string it." (atom nil))
 
 ;;; This is essentially 'top-level' of the functionality for generating schema.
-;;; (pro/make-schema-info :p5 "data/part5/p5.edn" "data/part5/p5-temp-schema+.edn"))
+;;; (pro/make-schema-info :p5 "data/part5/p5-nodeset.edn" "data/part5/p5-temp-schema+.edn"))
 (defn make-schema+
   "This creates schema maps in a map indexed by the object type strings, for example, 'Node' and 'NodeSet, and 'P5RefType'.
    Some of these can be used as is. Exceptions:

@@ -5,7 +5,9 @@
    [clojure.pprint     :refer [pprint]]
    [clojure.test       :refer [deftest is testing]]
    [develop.repl       :as dutil :refer [ns-setup!]]
-   [ua.build-part5     :as bp5]
+   [ua.build-part5     :as _bp5]  ; Required for the side effect: its defparse forms are the
+                                  ; methods of pu/rewrite-xml, which lives in ua.putil.
+   [ua.putil           :as pu]
    [ua.xml-util        :as xu]
    [jsonista.core      :as json]))
 
@@ -43,21 +45,24 @@
 (deftest parse-parts
   (testing "Testing parse of various small components"
     (testing "Testing parse of UAVariable"
-      (is (= (bp5/rewrite-xml example-ua-variable)
-             {:UAbase/NodeId "ns=1;i=15740",
-              :UAbase/BrowseName "1:OperationalMode",
-              :UAbase/ParentNodeId "ns=1;i=15698",
-              :UAbase/DataType "ns=1;i=3006",
-              :UAVariable/DisplayName "OperationalMode",
-              :UAVariable/Description
-              "The OperationalMode variable provides information about the current operational mode. Allowed values are described in OperationalModeEnumeration, see ISO 10218-1:2011 Ch.5.7 Operational Modes.",
-              :UAVariable/References
-              [{:UAbase/ReferenceType "HasTypeDefinition", :Reference/id "i=63"}
-               {:UAbase/ReferenceType "HasModellingRule", :Reference/id "i=78"}
-               {:UAbase/ReferenceType "HasComponent", :UAbase/IsForward false, :Reference/id "ns=1;i=15698"}]})))))
+      (is (= (do (reset! pu/parse-depth 0) (pu/rewrite-xml example-ua-variable))
+             #:Node{:type :UAVariable,
+                    :id "ns=1;i=15740",
+                    :browse-name "1:OperationalMode",
+                    :parent-node-id "ns=1;i=15698",
+                    :data-type "ns=1;i=3006",
+                    :display-name "OperationalMode",
+                    :description
+                    "The OperationalMode variable provides information about the current operational mode. Allowed values are described in OperationalModeEnumeration, see ISO 10218-1:2011 Ch.5.7 Operational Modes.",
+                    ;; NodeIds are still file-local here; ua.nsuri canonicalizes them at load, not at parse.
+                    ;; Note the reverse HasComponent arrives as its inverse, ComponentOf.
+                    :references
+                    [#:P5StdRefType{:HasTypeDefinition #:IMPL{:ref "i=63"}}
+                     #:P5StdRefType{:HasModellingRule  #:IMPL{:ref "i=78"}}
+                     #:P5StdRefType{:ComponentOf       #:IMPL{:ref "ns=1;i=15698"}}]})))))
 
 (def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5")))
-(def p5 (-> "data/part5/p5.edn" slurp edn/read-string))
+(def p5 (-> "data/part5/p5-nodeset.edn" slurp edn/read-string))
 
 (def ^:diag ref-types
   "Ref types indexed by their Node/id."
@@ -75,32 +80,12 @@
 (def diag (atom nil))
 
 (def ^:diag schema-info
-  "This is useful if only to see how messed up p5.edn is.
+  "This is useful if only to see how messed up the nodeset EDN is.
    It helps to plan building schema. Some of which are okay right here."
-  (as-> "data/part5/p5.edn" ?d
+  (as-> "data/part5/p5-nodeset.edn" ?d
     (slurp ?d)
     (edn/read-string ?d)
-    (bp5/learn-schema-basic ?d)
-    (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
-    (reduce-kv (fn [m k v]
-                 (assoc m k (->> v
-                                 (sort (fn [x y]
-                                         (cond (and (-> x :db/ident keyword?)
-                                                    (-> y :db/ident keyword?))     (compare (:db/ident x) (:db/ident y))
-                                               (and (-> x :db/ident map?)
-                                                    (-> x :db/ident map?))         (compare (:IMPL/ref x) (:IMPL/ref y))
-                                               :else (reset! diag [x y]))))
-                                 vec)))
-               {}
-               ?d)))
-
-(def ^:diag schema-info
-  "This is useful if only to see how messed up p5.edn is.
-   It helps to plan building schema. Some of which are okay right here."
-  (as-> "data/part5/p5.edn" ?d
-    (slurp ?d)
-    (edn/read-string ?d)
-    (bp5/learn-schema-basic ?d)
+    (pu/learn-schema-basic ?d)
     (group-by #(if (-> % :db/ident keyword?) (-> % :db/ident namespace) :other) ?d)
     (reduce-kv (fn [m k v]
                  (if (= k :other)
@@ -139,12 +124,6 @@
                                     :content
                                     [#:xml{:tag :p5/Alias, :attrs {:Alias "Boolean"}, :content "i=1"}
                                      #:xml{:tag :p5/Alias, :attrs {:Alias "HasDescription"}, :content "i=39"}]}]}])
-
-(defn ^:diag toplevel-make-p5-edn! []
-  (reset! bp5/parse-depth 0)
-  (let [p5 (bp5/rewrite-xml (-> x5 :xml/content first) :p5/UANodeSet)
-        s (with-out-str (pprint p5))]
-    (spit "data/part5/p5.edn" s)))
 
 (defn string->stream
   ([s] (string->stream s "UTF-8"))

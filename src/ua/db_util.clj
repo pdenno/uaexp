@@ -66,30 +66,6 @@
              []
              schema))
 
-(defn box
-  "Wrap the argument (an atomic value) in a box.
-   Note that unlike unbox, this only accepts atomic values."
-  [obj]
-  (cond (string?  obj) {:box_string-val  obj},
-        (number?  obj) {:box_number-val  obj},
-        (keyword? obj) {:box_keyword-val obj},
-        (boolean? obj) {:box_boolean-val obj}))
-
-(defn unbox
-  "Walk through the form replacing boxed data with the data.
-   In the reduce DB, for simplicity, all values are :db.type/ref."
-  [data]
-  (letfn [(box? [obj]
-            (and (map? obj)
-                 (#{:box_string-val :box_number-val :box_keyword-val :box_boolean-val}
-                  (-> obj seq first first))))  ; There is just one key in a boxed object.
-          (ub [obj]
-            (if-let [box-typ (box? obj)]
-              (box-typ obj)
-              (cond (map? obj)      (reduce-kv (fn [m k v] (assoc m k (ub v))) {} obj)
-                    (vector? obj)   (mapv ub obj)
-                    :else           obj)))]
-    (ub data)))
 ;;; ------------------------------------------ resolve-node ---------------------------------------------------------
 (defn db-ref?
   "It looks to me that a datahike ref is a map with exactly one key: :db/id."

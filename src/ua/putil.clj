@@ -127,7 +127,7 @@
                  {}
                  ?schema))))
 
-;;; (->> "data/part5/p5.edn" slurp edn/read-string core/learn-schema (sort-by :db/ident))
+;;; (->> "data/part5/p5-nodeset.edn" slurp edn/read-string core/learn-schema (sort-by :db/ident))
 (defn ^:admin learn-schema-basic
   "Return DH/DS schema objects for the data provided."
   [data & {:keys [known-schema datahike?] :or {known-schema {} datahike? true}}]
@@ -158,7 +158,7 @@
 
 
 ;;; ------------------- Write profile edn -----------------------------------------------
-;;; (pu/write-profile-edn! "data/part5/OPC_UA_Core_Model_2515947497.xml" "data/part5/p5.edn")
+;;; (pu/write-nodeset-edn! "data/part5/OPC_UA_Core_Model_2515947497.xml" "data/part5/p5-nodeset.edn")
 (defn write-nodeset-edn!
   [xml-file out-file]
   (reset! parse-depth 0)
