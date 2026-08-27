@@ -2,6 +2,7 @@
   "Functions to read any profile and create a Part5-based DB for it."
   (:require
    [clojure.edn                 :as edn]
+   [clojure.java.io             :as io]
    [clojure.pprint              :refer [pprint]]
    [clojure.set                 :as set]
    [datahike.api                :as d]
@@ -74,13 +75,15 @@
    own content plus everything it references. Arguments:
      :db-id    - keyword naming the DB
      :nodesets - EDN nodeset files IN DEPENDENCY ORDER (each <Model>'s <RequiredModel> first).
-     :schema   - schema+ to merge with Part 5's, or nil.
+     :schema+  - schema+ to merge with Part 5's, or nil.
    Returns {:stubs {<nodeset-file> #{<canonical-id> ...}}} -- ids referenced but not loaded."
-  [{:keys [db-id nodesets schema]}]
+  [{:keys [db-id nodesets schema+]}]
+  (assert (keyword? db-id))
   (let [[first-file & rest-files] nodesets
         report (atom {})]
-    (create-ua-db! (cond-> {:db-id db-id :nodeset (-> first-file slurp edn/read-string)}
-                     schema (assoc :schema schema)))
+    (create-ua-db! :db-id db-id
+                   :schema+ (or schema+ {})
+                   :nodeset (-> first-file slurp edn/read-string))
     (doseq [f rest-files]
       (let [nodeset (-> f slurp edn/read-string nsuri/canonicalize-nodeset)]
         (swap! report assoc f (load-stubs! db-id nodeset))
@@ -97,16 +100,20 @@
      :make-schema+-file? - whether to make the schema-file with the name or use the file at the name." 
   [{:keys [schema-key xml-file nodeset-edn-file schema+-file]}]
   (assert (keyword? schema-key))
+  ;; Without an :xml-file there is nothing to generate from, so the EDN has to be there already.
   (when-not xml-file
-    "check-that nodeset-edn-file is supplied and exists.") ;<================================================================== Start here. Likewise for schema+ file.
+    (assert nodeset-edn-file "Provide :xml-file to generate the nodeset EDN, or :nodeset-edn-file naming an existing one.")
+    (assert (-> nodeset-edn-file io/file .exists) (str "No such nodeset EDN file: " nodeset-edn-file)))
   (reset! ignored-nodes [])
   (when xml-file
     (write-nodeset-edn! xml-file nodeset-edn-file))
+  ;; ToDo: :make-schema+-file? (see docstring) is not implemented, so a :schema+-file is always
+  ;;       regenerated here and then read back. Deciding generate-vs-use is the open question.
   (when schema+-file
     (make-schema+ schema-key nodeset-edn-file schema+-file))
   (pu/create-ua-db!
    :schema+ (if schema+-file (-> schema+-file slurp edn/read-string) {})
-   :nodeset nodeset-edn-file
+   :nodeset (-> nodeset-edn-file slurp edn/read-string)   ; create-ua-db! wants the nodeset, not its filename.
    :db-id schema-key))
 
 ;;; --------- These were encountered in nodesets other than Part 5. (Just AMB so far.)

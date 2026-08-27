@@ -7,12 +7,7 @@
    [datahike.api                :as d]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.db-util                  :as dbu :refer [connect-atm datahike-schema db-cfg-map register-db]]
-<<<<<<< HEAD
    [ua.nsuri                    :as nsuri]
-   [ua.part5-schema             :refer [part5-schema part5-schema+]]
-=======
-   [ua.part5-schema             :refer [part5-schema+]]
->>>>>>> 4179462713402408045c841e7bd3a8d5a0896b4c
    [ua.xml-util                 :as xu]))
 
 (def ^:diag diag (atom false))

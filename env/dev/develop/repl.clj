@@ -23,7 +23,7 @@
     bp5    ua.build-part5
     core   ua.core
     dbu    ua.db-util
-    p5s    ua.part5-schema
+    nsuri  ua.nsuri
     pro    ua.profiles
     pu     ua.putil
     util   ua.util

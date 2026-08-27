@@ -384,7 +384,9 @@
     (register-db :part5 cfg)
     (when @recreate-db?
       (when (d/database-exists? cfg) (d/delete-database cfg))
-      (create-ua-db! {:nodeset (-> "data/part5/p5-nodeset.edn" slurp edn/read-string)})))
+      (create-ua-db! :db-id :part5
+                     :schema+ {}
+                     :nodeset (-> "data/part5/p5-nodeset.edn" slurp edn/read-string))))
   {:part5-config @(connect-atm :part5)})
 
 (defstate part5
