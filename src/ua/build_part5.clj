@@ -383,10 +383,11 @@
   []
   (let [nodeset (-> "data/part5/p5-nodeset.edn" slurp edn/read-string)
         db-id {:prefix (nsuri/nodeset-uri nodeset) :version (nsuri/nodeset-version nodeset)}]
-    (if @recreate-db?
-      (create-ua-db! :schema+ {} :nodeset nodeset)
-      (register-db db-id (db-cfg-map db-id)))
-    {:part5-config @(connect-atm db-id) :db-id db-id}))
+    (when @recreate-db?
+      (create-ua-db! :schema+ {} :nodeset nodeset))
+    ;; Every namespace is its own store now, so starting up means finding them all, not just this one.
+    (let [found (dbu/discover-stores!)]
+      {:part5-config @(connect-atm db-id) :db-id db-id :stores found})))
 
 (defstate part5
   :start (init-part5))

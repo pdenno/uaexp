@@ -1805,3 +1805,4 @@ The regression test I wrote asserted zero leftover markers — a property only m
   Uncommitted: src/ua/db_util.clj and test/ua/db_util_test.clj.
 ** [2026-08-28 Fri] We finish implementing changes to referencing of nodes and versioning of DBs
    * (dbu/connect-atm "http://example-machineworks.com/UA/CNC04/") => #<Connection@8a1449b: #datahike/DB {:max-tx 536870915 :max-eid 243}>
+   * (dbu/resolve-db-id {:db/id 246} "http://example-machineworks.com/UA/CNC04/")

@@ -1,32 +1,32 @@
 {:paths   ["src"]
  :deps    {#_#_camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.3"}
            com.cemerick/url                    {:mvn/version "0.1.1"}
-           com.taoensso/timbre                 {:mvn/version "6.7.1"} ; Keep to reign in datahike.
-           com.taoensso/telemere               {:mvn/version "1.0.0"}
-           com.taoensso/telemere-slf4j         {:mvn/version "1.0.0"} ; Just adding it here initializes it; try (tel/check-interop).
-           io.github.paintparty/bling          {:mvn/version "0.6.0"}
-           io.replikativ/datahike              {:mvn/version "0.6.1595"}
-           metosin/jsonista                    {:mvn/version "0.3.13"}
-           mount/mount                         {:mvn/version "0.1.23"}
-           net.clojars.wkok/openai-clojure     {:mvn/version "0.22.0"}
-           org.clojure/clojure                 {:mvn/version "1.12.0"}
-           org.clojure/tools.logging           {:mvn/version "1.3.0"}
-           org.clojure/data.xml                {:mvn/version "0.2.0-alpha9"}
+           com.taoensso/timbre                 {:mvn/version "6.8.0"} ; Keep to reign in datahike.
+           com.taoensso/telemere               {:mvn/version "1.4.0"}
+           com.taoensso/telemere-slf4j         {:mvn/version "1.4.0"} ; Just adding it here initializes it; try (tel/check-interop).
+           io.github.paintparty/bling          {:mvn/version "0.10.0"}
+           io.replikativ/datahike              {:mvn/version "0.7.1624"}
+           metosin/jsonista                    {:mvn/version "1.0.0"}
+           mount/mount                         {:mvn/version "0.1.24"}
+           net.clojars.wkok/openai-clojure     {:mvn/version "0.23.0"}
+           org.clojure/clojure                 {:mvn/version "1.12.5"}
+           org.clojure/tools.logging           {:mvn/version "1.3.1"}
+           org.clojure/data.xml                {:mvn/version "0.2.0-alpha11"}
            #_#_org.slf4j/slf4j-nop                 {:mvn/version "2.0.17"}}    ; Stop spurious logging!
  ;; See .dir-locals.el for some defaults on CIDER C-c M-j
  :aliases {:dev        {:extra-paths    ["test" "env/dev" "resources"]
                         :jvm-opts       ["-XX:-OmitStackTraceInFastThrow"] ; https://www.metosin.fi/blog/missing-stacktraces/
-                        :extra-deps     {com.lambdaisland/classpath      {:mvn/version "0.6.58"}
+                        :extra-deps     {com.lambdaisland/classpath      {:mvn/version "0.9.74"}
                                          expound/expound                 {:mvn/version "0.9.0"} ; more readable spec messages
-                                         org.clojure/tools.namespace     {:mvn/version "1.5.0"}}}
+                                         org.clojure/tools.namespace     {:mvn/version "1.5.1"}}}
 
            :test       {:extra-paths    ["src/server" "test" "env/dev"]
                         :main-opts      ["-m" "kaocha.runner"]
                         :extra-deps     {lambdaisland/kaocha          {:mvn/version "1.91.1392"}
-                                         com.lambdaisland/classpath   {:mvn/version "0.6.58"}
-                                         org.clojure/tools.namespace  {:mvn/version "1.5.0"}}}
+                                         com.lambdaisland/classpath   {:mvn/version "0.9.74"}
+                                         org.clojure/tools.namespace  {:mvn/version "1.5.1"}}}
 
-           :build    {:deps {io.github.clojure/tools.build {:mvn/version "0.10.8"}}
+           :build    {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}}
                       :ns-default build}}}
 
 ;;; clj -X:search/outdated

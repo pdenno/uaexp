@@ -1,6 +1,7 @@
 (ns ua.db-util
   "Utilities for schema-db (which will likely become a library separate from rad-mapper"
   (:require
+   [clojure.string        :as str]
    [datahike.api          :as d]
    [datahike.pull-api     :as dp]
    [taoensso.telemere     :as log :refer [log!]]
@@ -44,7 +45,7 @@
 
 (def db-template
   "Datahike file-based DBs follow this form."
-  {:store {:backend :file :path "Provide a value!"} ; This is path to the database's root directory
+  {:store {:backend :file :path "Provide a value!"} ; This is path to the database's root directory; :id is added by db-cfg-map
    :keep-history? false
    :base-dir "Provide a value!"                     ; For convenience, this is just above the database's root directory.
    :schema-flexibility :write})
@@ -61,13 +62,17 @@
   (assert (and prefix version) "A store is identified by a namespace URI and a version.")
   (let [base-dir (or (-> (System/getenv) (get "UAEXP_DB"))
                      (throw (ex-info "Set the environment variable UAEXP_DB to the directory containing UA databases." {})))
-        db-dir (str base-dir "/" prefix "/" version)]
+        db-dir (str base-dir "/" prefix "/" version)
+        ;; konserve requires every store config to carry a UUID :id (datahike 0.7 / konserve 0.7).
+        ;; Deriving it from the store's own name keeps it stable across runs -- a fresh random one
+        ;; would not find the store it made last time -- and needs nothing recorded anywhere.
+        store-id (java.util.UUID/nameUUIDFromBytes (.getBytes (str prefix "|" version) "UTF-8"))]
     (when-not in-mem?
       (-> db-dir java.io.File. .getParentFile .mkdirs))
     (cond-> db-template
       true            (assoc :base-dir base-dir)     ; This is not a datahike thing.
-      (not in-mem?)   (assoc :store {:backend :file :path db-dir})
-      in-mem?         (assoc :store {:backend :mem :id (str prefix "|" version)}))))
+      (not in-mem?)   (assoc :store {:backend :file :path db-dir :id store-id})
+      in-mem?         (assoc :store {:backend :mem :id store-id}))))
 
 (defn connect-atm
   "Return a connection atom for a store, named either by {:prefix .. :version ..} or by a bare
@@ -80,6 +85,51 @@
           error? (throw (ex-info "No such store" {:asked-for k :resolved-to key-
                                                   :registered (vec (keys @databases-atm))}))
           :else nil)))
+
+(defn- path->store-key
+  "Invert db-cfg-map's layout: <base>/http:/opcfoundation.org/UA/1.05.04 names version 1.05.04 of
+   http://opcfoundation.org/UA/. The filesystem collapsed the scheme's '//', so put it back."
+  [base-dir path]
+  (let [rel (subs path (inc (count base-dir)))
+        parts (str/split rel #"/")
+        scheme (first parts)
+        middle (butlast (rest parts))]
+    {:prefix (str scheme "//" (str/join "/" middle) "/")
+     :version (last parts)}))
+
+(defn discover-stores!
+  "Register every store under UAEXP_DB and return their keys.
+
+   The directory layout says which namespace and version a store holds, and the store's own root
+   says the same thing (:NodeSet/uri, :NodeSet/version). The path is used to find candidates; the
+   root is used to confirm them, so a store that has been moved or misfiled is reported rather
+   than registered under the wrong name."
+  []
+  (let [base-dir (or (-> (System/getenv) (get "UAEXP_DB"))
+                     (throw (ex-info "Set the environment variable UAEXP_DB to the directory containing UA databases." {})))
+        candidates (->> (file-seq (java.io.File. base-dir))
+                        (filter #(and (.isDirectory %)
+                                      (some (fn [f] (str/ends-with? (.getName f) ".ksv"))
+                                            (or (seq (.listFiles %)) []))))
+                        (map #(.getPath %)))]
+    (->> candidates
+         (keep (fn [path]
+                 (let [k (path->store-key base-dir path)]
+                   (register-db k (db-cfg-map k))
+                   (let [claimed (d/q '[:find [?uri ?v] :where [?e :NodeSet/uri ?uri] [?e :NodeSet/version ?v]]
+                                      @(connect-atm k))]
+                     (cond (nil? claimed)
+                           (do (log! :warn (str "Store at " path " has no root; leaving it registered as " k ".")) k)
+
+                           (= claimed [(:prefix k) (:version k)]) k
+
+                           :else
+                           (do (deregister-db k)
+                               (log! :error (str "Store at " path " says it holds " claimed
+                                                 " but its location says " ((juxt :prefix :version) k)
+                                                 ". Not registered."))
+                               nil))))))
+         vec)))
 
 (defn datahike-schema
   "Create a Datahike-compatible schema from schema+ style schema with notes such as those in uaexp namespace removed.
