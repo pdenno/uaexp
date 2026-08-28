@@ -256,15 +256,21 @@
                     ;; design -- dbu/datahike-schema drops the namespace -- so they cannot be
                     ;; transacted. Drop them here rather than giving the namespace a schema.
                     (update :NodeSet/content #(filterv (fn [n] (not= :ignore (:Node/type n))) %)))
+        root {:NodeSet/uri (nsuri/nodeset-uri nodeset)
+              :NodeSet/version (nsuri/nodeset-version nodeset)}
         cnt (atom 0)]
     (reset! nodeset-memo nodeset)
     (load-lookups! db-id nodeset)
     (log! :info (str "Loading " (-> nodeset :NodeSet/content count) " nodes."))
+    ;; Everything is loaded under one root, so the models, aliases and namespace table are
+    ;; reachable from it rather than floating unreferenced. :NodeSet/uri is unique, so the
+    ;; chunks merge into a single root instead of making one apiece.
     (loop [nodes (:NodeSet/content  nodeset)]
       (let [[these others] (split-at 50 nodes)]
         (when (not-empty these)
           (swap! cnt #(+ % (count these)))
-          (d/transact (connect-atm db-id) {:tx-data (mapv #(resolve-node-ids % db-id)  these)})
+          (d/transact (connect-atm db-id)
+                      {:tx-data [(assoc root :NodeSet/content (mapv #(resolve-node-ids % db-id) these))]})
           (recur others))))
     (log! :info (str "Loaded " @cnt " nodes."))))
 

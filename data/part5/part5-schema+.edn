@@ -147,6 +147,17 @@
    :NodeSet/content
    #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref}
 
+   ;;; A store holds one nodeset, and this is its root: the entity that :NodeSet/content hangs
+   ;;; from, so the models, aliases and namespace table are reachable rather than floating loose.
+   ;;; :NodeSet/uri is unique so that a chunked load merges into one root rather than one per chunk.
+   :NodeSet/uri
+   #:db{:cardinality :db.cardinality/one,
+        :valueType :db.type/string,
+        :unique :db.unique/identity}
+
+   :NodeSet/version
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
    :NodeSet/models
    #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref}
 

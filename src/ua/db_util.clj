@@ -23,7 +23,7 @@
         :else        (throw (ex-info "A store is named by {:prefix .. :version ..} or by a namespace URI."
                                      {:given k}))))
 
-(defn registered-versions
+(defn ^:admin registered-versions
   "Return the versions of the argument namespace that are registered, newest last."
   [prefix]
   (->> @databases-atm keys (filter #(= prefix (:prefix %))) (map :version) (sort-by nsuri/version-vec) vec))
@@ -36,7 +36,7 @@
   (log! :debug (str "Registering store " k))
   (swap! databases-atm #(assoc % k config)))
 
-(defn deregister-db
+(defn ^:admin deregister-db
   "Remove a store configuration."
   [k]
   (log! :info (str "Deregistering store " k))
@@ -107,6 +107,22 @@
 ;;; (dbu/get-node-eid "i=25345" "http://opcfoundation.org/UA/")
 (defn get-node-eid [i= db-id] (d/q '[:find ?e . :in $ ?id :where [?e :Node/id ?id]] @(connect-atm db-id) i=))
 (defn get-node-i=  [eid db-id] (d/q '[:find ?id . :in $ ?eid :where [?eid :Node/id ?id]] @(connect-atm db-id) eid))
+
+(defn nodeset-root
+  "Return the entity id of the store's root -- the one entity that :NodeSet/content hangs from.
+   Its children are the store's nodes plus the nodeset-level records: <Models>, <Aliases> and
+   the <NamespaceUris> table. Aliases in particular are needed to read anything else."
+  [db-id]
+  (let [prefix (:prefix (store-key db-id))]
+    (d/q '[:find ?e . :in $ ?uri :where [?e :NodeSet/uri ?uri]] @(connect-atm db-id) prefix)))
+
+(defn ^:diag nodeset-aliases
+  "Return the store's alias table as {<alias name> <local identifier>}. A nodeset writes references
+   by alias (ReferenceType=\"HasComponent\"), so this is how those names map to nodes."
+  [db-id]
+  (->> (d/q '[:find ?n ?id :where [_ :NodeSet/aliases ?a] [?a :Alias/name ?n] [?a :Alias/node-id ?id]]
+            @(connect-atm db-id))
+       (into {})))
 
 (defn resolve-db-id
   "Return the form resolved, removing properties in filter-set,

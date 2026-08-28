@@ -13,23 +13,11 @@
    [ua.nsuri                    :as nsuri]
    [ua.putil                    :as pu :refer [defparse learn-schema-basic write-nodeset-edn! create-ua-db!]]))
 
-;;; ToDo: :db/cardinality is nil on AMB relationships. <==========================================================================
-;;; Add the p5 nodeset to every other profile         <==========================================================================
-
 (def ^:diag diag (atom nil))
 
 (def ignored-nodes "I'm not sure whether these are worth storing in the DB." (atom []))
 
 (declare make-schema+)
-
-#_(pro/make-profile-db! {:schema-key :p5 ; <================================================ Start here. This doesn't work.
-                         :nodeset-edn-file "data/part5/p5-nodeset.edn" ; Since we didn't provide an xml file, this must already exist. <=== Move p5-nodeset.edn and p5-schema+ to resources.
-                         :create-db? true})
-
-#_(pro/make-profile-db! {:schema-key :amb
-                         :xml-file         "data/profiles/amb/AssetManagementBasics.xml"
-                         :nodeset-edn-file "data/profiles/amb/amb-nodeset.edn"
-                         :schema+-file     "data/profiles/amb/amb-schema+.edn"})
 
 (defn ^:admin make-store!
   "Create the store for one nodeset EDN file. There is no dependency order to get right and no
