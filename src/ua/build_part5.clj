@@ -9,6 +9,7 @@
    [taoensso.telemere           :as log :refer [log!]]
    [ua.db-util                  :as dbu :refer [connect-atm db-cfg-map register-db]]
    [ua.p5-cardinality           :as p5-card]
+   [ua.nsuri                    :as nsuri]
    [ua.putil                    :as pu :refer [create-ua-db! defparse rewrite-xml xml-attrs-as-content]]
    [ua.util                     :as util :refer [util-state]])) ; For mount
 
@@ -380,14 +381,12 @@
 (defn init-part5
   "Register DBs (currently just a part5-only DB), loading if DB does not exist and recreate-db? (above) is true."
   []
-  (let [cfg (db-cfg-map {:id :part5 :type :ua-base})]
-    (register-db :part5 cfg)
-    (when @recreate-db?
-      (when (d/database-exists? cfg) (d/delete-database cfg))
-      (create-ua-db! :db-id :part5
-                     :schema+ {}
-                     :nodeset (-> "data/part5/p5-nodeset.edn" slurp edn/read-string))))
-  {:part5-config @(connect-atm :part5)})
+  (let [nodeset (-> "data/part5/p5-nodeset.edn" slurp edn/read-string)
+        db-id {:prefix (nsuri/nodeset-uri nodeset) :version (nsuri/nodeset-version nodeset)}]
+    (if @recreate-db?
+      (create-ua-db! :schema+ {} :nodeset nodeset)
+      (register-db db-id (db-cfg-map db-id)))
+    {:part5-config @(connect-atm db-id) :db-id db-id}))
 
 (defstate part5
   :start (init-part5))

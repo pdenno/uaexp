@@ -5,6 +5,7 @@
    [clojure.java.io             :as io]
    [clojure.pprint              :refer [pprint]]
    [clojure.set                 :as set]
+   [clojure.string              :as str]
    [datahike.api                :as d]
    [taoensso.telemere           :as log :refer [log!]]
    [ua.p5-cardinality           :as p5-card]
@@ -30,65 +31,19 @@
                          :nodeset-edn-file "data/profiles/amb/amb-nodeset.edn"
                          :schema+-file     "data/profiles/amb/amb-schema+.edn"})
 
-(defn nodeset-ids
-  "Return the set of canonical :Node/id defined by the (canonicalized) nodeset."
-  [nodeset]
-  (->> nodeset :NodeSet/content (keep :Node/id) set))
-
-(defn nodeset-refs
-  "Return the set of canonical ids the (canonicalized) nodeset references."
-  [nodeset]
-  (let [found (atom #{})]
-    (letfn [(nr [obj]
-              (cond (and (map? obj) (contains? obj :IMPL/ref)) (swap! found conj (:IMPL/ref obj))
-                    (map? obj)    (doseq [[k v] obj] (nr k) (nr v))
-                    (vector? obj) (doseq [x obj] (nr x))))]
-      (nr nodeset)
-      @found)))
-
-(defn load-stubs!
-  "Transact a placeholder for every id the nodeset references but neither defines nor finds in
-   the DB. These are references into companion specifications we have not loaded. A stub carries
-   its canonical id and nothing else, so it resolves without pretending to know what it is.
-   Returns the stubbed ids, which the caller should report -- a silent stub is a lie about coverage."
-  [db-id nodeset]
-  (let [defined (nodeset-ids nodeset)
-        conn (connect-atm db-id)
-        missing (->> (nodeset-refs nodeset)
-                     (remove defined)
-                     (remove #(d/q '[:find ?e . :in $ ?id :where [?e :Node/id ?id]] @conn %))
-                     set)]
-    (when (not-empty missing)
-      (log! :warn (str "Stubbing " (count missing) " reference(s) into nodesets that are not loaded."))
-      (d/transact conn {:tx-data (mapv (fn [id]
-                                         (let [[uri local] (nsuri/split-id id)]
-                                           {:Node/id id
-                                            :Node/namespace-uri uri
-                                            :Node/local-id local
-                                            :Node/browse-name local
-                                            :Node/type :stub}))
-                                       missing)}))
-    missing))
-
-(defn ^:admin make-composed-db!
-  "Create a DB holding several nodesets, which is what any companion specification needs: its
-   own content plus everything it references. Arguments:
-     :db-id    - keyword naming the DB
-     :nodesets - EDN nodeset files IN DEPENDENCY ORDER (each <Model>'s <RequiredModel> first).
-     :schema+  - schema+ to merge with Part 5's, or nil.
-   Returns {:stubs {<nodeset-file> #{<canonical-id> ...}}} -- ids referenced but not loaded."
-  [{:keys [db-id nodesets schema+]}]
-  (assert (keyword? db-id))
-  (let [[first-file & rest-files] nodesets
-        report (atom {})]
-    (create-ua-db! :db-id db-id
-                   :schema+ (or schema+ {})
-                   :nodeset (-> first-file slurp edn/read-string))
-    (doseq [f rest-files]
-      (let [nodeset (-> f slurp edn/read-string nsuri/canonicalize-nodeset)]
-        (swap! report assoc f (load-stubs! db-id nodeset))
-        (pu/load-nodeset! db-id nodeset)))
-    {:stubs @report}))
+(defn ^:admin make-store!
+  "Create the store for one nodeset EDN file. There is no dependency order to get right and no
+   other nodeset that has to be present: references outside this nodeset's own namespace are
+   recorded as foreign keys, and whether they resolve is a later question, answered by whether
+   that namespace's store is registered. Returns the store's {:prefix .. :version ..}."
+  [nodeset-edn-file & {:keys [schema+]}]
+  (let [nodeset (-> nodeset-edn-file slurp edn/read-string)
+        cfg (pu/create-ua-db! :nodeset nodeset :schema+ (or schema+ {}))
+        foreign (-> nodeset nsuri/canonicalize-nodeset nsuri/foreign-addresses)]
+    (log! :info (str (last (str/split nodeset-edn-file #"/")) ": "
+                     (count foreign) " foreign key(s) into "
+                     (->> foreign (map #(:uri (nsuri/parse-address %))) distinct count) " namespace(s)."))
+    (:db-id cfg)))
 
 (defn ^:admin  make-profile-db!
   "Create a Part5-based DB for the argument node set. Arguments:
@@ -97,7 +52,7 @@
      :schema+-file - a file of schema in schema+ format learned from the nodeset.
      :schema-key - a keyword used to register the db, and for use with connect-atm.
      :create-db? - whether to create the db or just stop at creating the schema+ file. (Defaults to true.)
-     :make-schema+-file? - whether to make the schema-file with the name or use the file at the name." 
+     :make-schema+-file? - whether to make the schema-file with the name or use the file at the name."
   [{:keys [schema-key xml-file nodeset-edn-file schema+-file]}]
   (assert (keyword? schema-key))
   ;; Without an :xml-file there is nothing to generate from, so the EDN has to be there already.

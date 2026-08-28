@@ -16,7 +16,9 @@
 
 ;;; If you get stuck do: (clojure.tools.namespace.repl/refresh)
 
-;; uncomment to enable hot loading for deps
+;;; Uncomment to enable hot loading for deps.
+;;; Using this with big projects and increase load time enormously.
+;;; Right now (2026-08-28) it has no effect on load time.
 (watch-deps/start! {:aliases [:dev :test]})
 
 (alter-var-root #'s/*explain-out* (constantly expound/printer))

@@ -236,10 +236,14 @@
             (or (d/q '[:find ?e . :in $ ?id :where [?e :Node/id ?id]] @(connect-atm db-id) i=)
                 (throw (ex-info "No DB entry for index:" {:i= i=}))))
           (rni [obj]
-            (cond (and (map? obj) (contains? obj :IMPL/ref))  {:db/id (lookup-ref (:IMPL/ref obj))}
-                  (map? obj)                                  (reduce-kv (fn [m k v] (assoc m (key-check k) (rni v))) {} obj)
-                  (vector? obj)                               (mapv rni obj)
-                  :else                                       obj))]
+            (cond (and (map? obj) (contains? obj :IMPL/ref))      {:db/id (lookup-ref (:IMPL/ref obj))}
+                  ;; A node in another namespace lives in another store, where an entity id means
+                  ;; nothing. Keep its address instead. :Node/ref is unique, so the many references
+                  ;; to one foreign node collapse to one object, and the target need not exist.
+                  (and (map? obj) (contains? obj :IMPL/foreign)) {:Node/ref (:IMPL/foreign obj)}
+                  (map? obj)                                     (reduce-kv (fn [m k v] (assoc m (key-check k) (rni v))) {} obj)
+                  (vector? obj)                                  (mapv rni obj)
+                  :else                                          obj))]
     (rni node)))
 
 (defn load-nodeset!
@@ -265,19 +269,25 @@
     (log! :info (str "Loaded " @cnt " nodes."))))
 
 (defn create-ua-db!
-  "Create a part5 database from a nodeset EDN file. Every UA DB would start with this.
-   If schema is provided it is merged with the part5 schema."
-  [& {:keys [schema+ nodeset db-id]}]
-  (assert (keyword? db-id))
-  (log! :info (str "Creating a Part 5-based database named " db-id "."))
-  (if (get (System/getenv) "UAEXP_DB")
-    (let [schema (merge-warn schema+)
-          cfg (db-cfg-map {:id db-id})]
-      (when (d/database-exists? cfg) (d/delete-database cfg))
-      (d/create-database cfg)
-      (register-db db-id cfg)
-      (let [conn (connect-atm db-id)]
-        (d/transact conn schema)
-        (load-nodeset! db-id nodeset)
-        cfg))
-    (log! :error "You have to set the environment variable UAEXP_DB to a directory.")))
+  "Create the store for one nodeset. The store holds exactly the namespace the nodeset defines,
+   at the version it declares; both are read from its own <Models>, so there is nothing to name
+   by hand and no way to put a nodeset in the wrong store. Nodes it references in other namespaces
+   are recorded as foreign keys, so nothing else has to be loaded first -- or at all.
+   If schema+ is provided it is merged with Part 5's."
+  [& {:keys [schema+ nodeset]}]
+  (let [prefix (nsuri/nodeset-uri nodeset)
+        version (or (nsuri/nodeset-version nodeset)
+                    (throw (ex-info "Nodeset's <Models> declares no Version." {:prefix prefix})))
+        db-id {:prefix prefix :version version}]
+    (log! :info (str "Creating store for " prefix " version " version "."))
+    (if (get (System/getenv) "UAEXP_DB")
+      (let [schema (merge-warn schema+)
+            cfg (db-cfg-map db-id)]
+        (when (d/database-exists? cfg) (d/delete-database cfg))
+        (d/create-database cfg)
+        (register-db db-id cfg)
+        (let [conn (connect-atm db-id)]
+          (d/transact conn schema)
+          (load-nodeset! db-id nodeset)
+          (assoc cfg :db-id db-id)))
+      (log! :error "You have to set the environment variable UAEXP_DB to a directory."))))

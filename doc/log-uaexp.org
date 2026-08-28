@@ -1743,3 +1743,63 @@ supported in 40501-1. Ideally your small synthetic nodeset would address that.
   Two smaller notes: p5-schema+.edn and the code's schema now differ by the four attributes I added, deliberately — those are uaexp's, not learned from the nodeset. And
   make-profile-db! still has the :db-id :part5 clobber hazard and the :scheam-key typo; I added make-composed-db! alongside rather than touching it, so that's still
   live.
+
+*** Bug with
+You were right. There was a real defect, and it was mine.
+
+_What was wrong_
+
+My walk-final carried this assumption, stated as a comment in the code:
+
+▎ "A marker with no :Node/id is a reference entity"
+
+False. A marker with no :Node/id can be any of the value entities nodes are built from. On the CNC04 walk, eid 29782 turned out to be a
+:P6ByteString/str — a single 436 KB blob — and it sat behind 170 of the markers.
+My code pulled each unnamed marker and spliced its entire content in at every occurrence:
+
+170 × 436,138 chars ≈ 74 MB      (~91% of the 81 MB)
+estimated total from all such markers: 77.7 MB
+observed inflation:                    3.96 MB → 81.44 MB
+
+The arithmetic matches the observation, so that's the whole story.
+walk-final no longer resolves anything — it replaces a marker with the node's
+canonical :Node/id when it has one, and otherwise leaves it alone.
+
+resolve-node, CNC04 CoolantTemperature:   81.4 MB → 3.96 MB     (and 300ms)
+i=2041 depth 1 / depth 2:                 25,793 / 36,835 chars
+
+Removing the splice also restored :depth.
+My expansion had been saturating the structure, which is why I reported "depth doesn't matter" for i=2041 last message — that was an artifact of the bug, not the node.
+
+_The test_
+
+The regression test I wrote asserted zero leftover markers — a property only my broken version satisfied, by expanding things it shouldn't have. So the test was
+  endorsing the bug. Rewritten to pin what's actually correct:
+
+  - walk-final never increases the collection count. Substituting strings for markers can only reduce it, so this fails the moment anything gets spliced in — the direct
+    guard for what just happened.
+  - Anything left unnamed has no :Node/id, i.e. walk-final named everything nameable.
+
+  Plus the existing check that deeper advances one level. Suite: 3 tests, 6 assertions, 0 failures.
+
+  Your instinct goes further than this fix
+
+  3.96 MB for one variable still isn't useful output, and the profile explains why:
+
+  after resolve-db-id:  4,950 marker occurrences —    468 distinct entities
+  after one deeper:    60,461 marker occurrences —  2,984 distinct entities
+
+  Ten occurrences per distinct entity, then twenty. resolve-node builds a tree out of a cyclic graph, so the same content is emitted over and over along different paths.
+  deeper expands all 4,950 occurrences, not the 468 distinct things.
+
+  That's not fixable inside deeper or walk-final — it's the shape of what resolve-node returns. Two ways out, and this one is genuinely your call:
+
+  1. Bound it properly — have resolve-node start from a one-step pull instead of the full resolve-db-id, so :depth controls total size rather than adding to "everything
+     reachable."
+  2. Stop building a tree — emit each distinct entity once and reference it by canonical id thereafter. Output stays proportional to the subgraph rather than to its path
+     expansion.
+
+  (2) is what actually matches the data; (1) is the smaller change. I'd do (1) now and keep (2) in mind if you ever want to hand a resolved node to something other than
+  a human reading it.
+
+  Uncommitted: src/ua/db_util.clj and test/ua/db_util_test.clj.

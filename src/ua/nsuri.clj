@@ -1,18 +1,21 @@
 (ns ua.nsuri
-  "Canonicalize NodeIds so that nodesets from different files can share one DB.
+  "Node addresses that mean the same thing in every database.
 
    A NodeId's ns=<index> is an index into the file's own <NamespaceUris> table, so the same
    literal string denotes different nodes in different files: ns=1;i=1002 is ObligationType in
-   OPC 40501-1 and CNC04MachineOperationMonitoringType in CNC04's extension. Since :Node/id is
-   :db/unique :db.unique/identity, loading both without rewriting merges them into one entity,
-   silently.
+   OPC 40501-1 and CNC04MachineOperationMonitoringType in CNC04's extension. Anything that keys
+   nodes on the literal NodeId merges the two.
 
-   Canonical form is \"<namespace-uri>;<identifier>\", e.g.
-     \"i=25345\"     -> \"http://opcfoundation.org/UA/;i=25345\"
-     \"ns=2;i=26\"   -> \"http://opcfoundation.org/UA/MachineTool/;i=26\"   (in CNC04's file)
-     \"ns=1;i=26\"   -> \"http://opcfoundation.org/UA/MachineTool/;i=26\"   (in MachineTool's own file)
+   The address that does not have that problem is OPC UA's own ExpandedNodeId (Part 6, Annex A),
+   which carries the namespace URI in place of the index:
 
-   The last two lines are the point: the same node, written two ways, arrives as one id."
+     nsu=http://opcfoundation.org/UA/;i=25345
+     nsu=http://opcfoundation.org/UA/MachineTool/;i=26
+
+   Within one store the namespace is implied, so a node's :Node/id is the bare identifier -- the
+   Part 6 form without a namespace: i=25345. The four identifier types are i= numeric, s= string,
+   g= guid and b= opaque; only i= occurs in any nodeset we have read, but a server's instance data
+   is normally s=, so nothing here assumes numeric."
   (:require
    [clojure.string    :as str]
    [taoensso.telemere :as log :refer [log!]]))
@@ -21,16 +24,49 @@
   "Namespace index 0 is always the OPC UA base namespace and is never listed in <NamespaceUris>."
   "http://opcfoundation.org/UA/")
 
+(def ^:private local-id-re
+  "An identifier with its type letter and no namespace: i=25345, s=Channel1.Speed."
+  #"^[isgb]=.+$")
+
+(defn local-id?
+  "Truthy when s is an identifier scoped to some store, e.g. \"i=25345\"."
+  [s]
+  (and (string? s) (re-matches local-id-re s)))
+
 (defn node-id?
-  "Truthy when s is a NodeId string. Identifier types are i= (numeric), s= (string),
-   g= (guid) and b= (opaque); only i= occurs in the nodesets we read so far."
+  "Truthy when s is a NodeId as written in a nodeset file: an identifier, optionally preceded by
+   the file-local ns=<index>."
   [s]
   (and (string? s) (re-matches #"^(ns=\d+;)?[isgb]=.+$" s)))
 
-(defn canonical?
-  "Truthy when s is already in canonical <uri>;<identifier> form."
+(defn address?
+  "Truthy when s is an ExpandedNodeId naming its namespace by URI."
   [s]
-  (and (string? s) (re-matches #"^https?://.*;[isgb]=.+$" s)))
+  (and (string? s) (str/starts-with? s "nsu=")))
+
+(defn address
+  "Return the ExpandedNodeId for local-id in namespace uri."
+  [uri local-id]
+  (str "nsu=" uri ";" local-id))
+
+(defn parse-address
+  "Return {:uri <namespace uri> :id <local identifier>} for an ExpandedNodeId.
+
+   Splits at the FIRST ';' after the URI, not the last: a String identifier may itself contain
+   semicolons (nsu=http://x/;s=Channel1;Spindle is legal and its identifier runs to the end)."
+  [s]
+  (when (address? s)
+    (let [rest- (subs s 4)
+          i (str/index-of rest- ";")]
+      (when i
+        {:uri (subs rest- 0 i)
+         :id  (subs rest- (inc i))}))))
+
+(defn split-node-id
+  "Return [ns-index local-id] for a NodeId as written in a file. Index 0 when ns= is absent."
+  [node-id]
+  (let [[_ idx ident] (re-matches #"^(?:ns=(\d+);)?(.+)$" node-id)]
+    [(if idx (parse-long idx) 0) ident]))
 
 (defn index->uri
   "Return a map from namespace index to namespace URI for one nodeset.
@@ -40,42 +76,60 @@
     (into {0 base-uri}
           (map-indexed (fn [i uri] [(inc i) uri]) uris))))
 
-(defn canonicalize-id
-  "Rewrite one NodeId string to <uri>;<identifier> using the nodeset's index->uri map."
-  [id idx->uri]
-  (cond (canonical? id)  id
-        (node-id? id)    (let [[_ ns-part ident] (re-matches #"^(?:ns=(\d+);)?(.+)$" id)
-                               idx (if ns-part (parse-long ns-part) 0)
-                               uri (get idx->uri idx)]
-                           (if uri
-                             (str uri ";" ident)
-                             (throw (ex-info "NodeId names a namespace index the nodeset does not declare."
-                                             {:id id :index idx :known (sort (keys idx->uri))}))))
-        :else            id))
-
-(defn split-id
-  "Return [namespace-uri local-id] for a canonical id, or nil if it isn't one."
-  [id]
-  (when (canonical? id)
-    (let [i (str/last-index-of id ";")]
-      [(subs id 0 i) (subs id (inc i))])))
-
-(defn canonicalize-nodeset
-  "Return nodeset with every :Node/id and every {:IMPL/ref <id>} rewritten to canonical form,
-   and every node given :Node/namespace-uri and :Node/local-id.
-
-   Both places a NodeId can appear are covered: :Node/id on a node, and :IMPL/ref in either the
-   key or the value position of a reference (build-part5's :p5/Reference emits both)."
+(defn nodeset-uri
+  "Return the namespace URI a nodeset defines, from its <Models> entry. A nodeset declares exactly
+   one model of its own; Part 5's core model declares the base namespace."
   [nodeset]
-  (let [idx->uri (index->uri nodeset)]
+  (or (->> nodeset :NodeSet/content (some :NodeSet/models) first :Model/uri)
+      (throw (ex-info "Nodeset declares no <Models>; cannot tell which namespace it defines." {}))))
+
+(defn nodeset-version
+  "Return the version string of the model a nodeset defines."
+  [nodeset]
+  (->> nodeset :NodeSet/content (some :NodeSet/models) first :Model/version))
+
+;;; ------------------------------- versions -------------------------------------------
+(defn version-vec
+  "Return a version string as a vector of integers for comparison. \"1.05.04\" -> [1 5 4].
+   Segments that are not integers sort as -1, which keeps compare total without pretending
+   to understand them."
+  [v]
+  (mapv #(or (parse-long %) -1) (str/split (or v "") #"\.")))
+
+(defn newest
+  "Return the newest of the argument version strings."
+  [versions]
+  (->> versions (sort-by version-vec) last))
+
+;;; ------------------------- canonicalizing a parsed nodeset ---------------------------
+(defn canonicalize-nodeset
+  "Return nodeset with every NodeId resolved against its <NamespaceUris> table:
+
+     :Node/id      becomes the bare local identifier (i=1002), since a store holds one namespace.
+     {:IMPL/ref x} becomes {:IMPL/ref \"i=63\"} when x is in this nodeset's own namespace, and
+                   {:IMPL/foreign \"nsu=...;i=63\"} when it is not.
+
+   The caller loads the first as a reference to a local node and the second as a foreign key, so
+   nothing outside this namespace has to be present -- or even to exist -- for the load to work."
+  [nodeset]
+  (let [idx->uri (index->uri nodeset)
+        own (nodeset-uri nodeset)]
     (when (< (count idx->uri) 2)
       (log! :info (str "Nodeset declares no <NamespaceUris>; all NodeIds taken as " base-uri ".")))
-    (letfn [(cn [obj]
+    (letfn [(resolve-ref [node-id]
+              (let [[idx ident] (split-node-id node-id)
+                    uri (or (get idx->uri idx)
+                            (throw (ex-info "NodeId names a namespace index the nodeset does not declare."
+                                            {:node-id node-id :index idx :known (sort (keys idx->uri))})))]
+                (if (= uri own)
+                  {:IMPL/ref ident}
+                  {:IMPL/foreign (address uri ident)})))
+            (cn [obj]
               (cond (and (map? obj) (contains? obj :IMPL/ref))
-                    (update obj :IMPL/ref #(canonicalize-id % idx->uri))
+                    (resolve-ref (:IMPL/ref obj))
 
-                    ;; A QualifiedName carries a bare namespace index, for the same reason and
-                    ;; with the same hazard as a NodeId. ua.profiles parks it on :IMPL/namespace-index.
+                    ;; A QualifiedName carries a bare namespace index, for the same reason and with
+                    ;; the same hazard as a NodeId. ua.profiles parks it on :IMPL/namespace-index.
                     (and (map? obj) (contains? obj :IMPL/namespace-index))
                     (let [idx (:IMPL/namespace-index obj)]
                       (-> obj
@@ -88,19 +142,21 @@
                     (map? obj)
                     (let [m (reduce-kv (fn [m k v] (assoc m (cn k) (cn v))) {} obj)]
                       (if-let [id (:Node/id m)]
-                        (let [id* (canonicalize-id id idx->uri)
-                              [uri local] (split-id id*)]
-                          (assoc m :Node/id id* :Node/namespace-uri uri :Node/local-id local))
+                        (assoc m :Node/id (second (split-node-id id)))
                         m))
 
-                    (vector? obj)
-                    (mapv cn obj)
-
+                    (vector? obj) (mapv cn obj)
                     :else obj))]
       (cn nodeset))))
 
-(defn ^:diag namespace-census
-  "Return {namespace-uri count} over a canonicalized nodeset. Useful for confirming that a
-   companion nodeset's own nodes landed in its own namespace and not the base one."
+(defn ^:diag foreign-addresses
+  "Return the distinct foreign addresses a canonicalized nodeset references. These become the
+   store's foreign keys, and they are the whole of its dependence on other nodesets."
   [nodeset]
-  (->> nodeset :NodeSet/content (keep :Node/namespace-uri) frequencies))
+  (let [found (atom #{})]
+    (letfn [(f [obj]
+              (cond (and (map? obj) (contains? obj :IMPL/foreign)) (swap! found conj (:IMPL/foreign obj))
+                    (map? obj)    (doseq [[k v] obj] (f k) (f v))
+                    (vector? obj) (doseq [x obj] (f x))))]
+      (f nodeset)
+      @found)))

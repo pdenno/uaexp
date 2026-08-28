@@ -91,14 +91,14 @@
         :valueType :db.type/string,
         :unique :db.unique/identity}
 
-   ;;; :Node/namespace-uri and :Node/local-id are uaexp's, not the standard's. :Node/id is
-   ;;; canonicalized to "<namespace-uri>;<local-id>" (see ua.nsuri) because a NodeId's ns=<index>
-   ;;; is file-local and collides across nodesets. These two hold the parts, separately queryable.
-   :Node/namespace-uri
-   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
-
-   :Node/local-id
-   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+   ;;; :Node/ref is uaexp's, not the standard's. A store holds one namespace, so a reference to
+   ;;; a node in another one cannot be a :db.type/ref -- an entity id is local to its store. It is
+   ;;; instead an object holding the target's ExpandedNodeId: {:Node/ref "nsu=...;i=63"}. Unique,
+   ;;; so the many references to one foreign node collapse to a single object. See ua.nsuri.
+   :Node/ref
+   #:db{:cardinality :db.cardinality/one,
+        :valueType :db.type/string,
+        :unique :db.unique/identity}
 
    :Node/inverse-name
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
