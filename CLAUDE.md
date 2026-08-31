@@ -35,7 +35,14 @@ on the literal NodeId silently merges the two. So:
 - Because references out are foreign keys, **nodesets load in any order and alone**. Nothing
   has to be present first, and a target need not exist at all.
 
-`ua.nsuri` owns all of this. Do not parse a NodeId anywhere else.
+A **BrowseName is a QualifiedName** (Part 3 §8.3) and carries the same file-local index in its
+text form, `1:Contains`. `defparse :p5/BrowseName` splits it off as `:IMPL/browse-name-index`;
+`nsuri` resolves it, dropping it when it names the store's own namespace and recording
+`:Node/browse-name-uri` otherwise. So `:Node/browse-name` is always the bare name — which is also
+what keeps schema idents readable (`:P5StdRefType/1:Contains` is a keyword `keyword` will build
+and the reader will not read).
+
+`ua.nsuri` owns all of this. Do not parse a NodeId or a BrowseName anywhere else.
 
 ## Databases
 
@@ -55,8 +62,30 @@ reported instead of registered under the wrong name.
 **Everything here is regenerable** from the XML in `data/`, so rebuilding a store is cheap and
 losing one is not a disaster. That is not true of Tessell's DBs — do not carry the assumption over.
 
-**Isolate Datahike.** Queries and pulls belong in `ua.db-util` and `ua.putil`. If you need
-state, add a function there rather than writing `d/q` in a new file.
+**Isolate Datahike.** Queries and pulls belong in `ua.db-util`, `ua.putil` and `ua.system-db`.
+If you need state, add a function there rather than writing `d/q` in a new file.
+
+### The system DB
+
+`$UAEXP_DB/system` holds uaexp's own catalog — one `:store` entry per `<namespace, version>`,
+each with append-only `:build` records saying how it was derived (source file and its SHA-256,
+`uaexp` commit, counts, declared `<RequiredModel>`s, the namespaces actually referenced, parser
+gaps, ignored content, schema collisions). It exists because all of that used to be computed
+during a build and then only logged.
+
+`:store/id` is `"<uri>|<version>"` (`nsuri/store-id`) and is **stable across rebuilds** — a
+rebuild replaces a store in place, so there is only ever one directory per pair. That is what a
+consumer connects with: survey the catalog, take a `:store/id`, hand `nsuri/parse-store-id`'s
+answer to `dbu/connect-atm`. Which build produced the bytes on disk is `:store/current-build`,
+not part of the identifier.
+
+`ua.system-db` is a **leaf**: it takes build facts as data rather than requiring `ua.putil` or
+`ua.profiles`, so the loader can call `record-build!` without a cycle. Malli schemas (`Store`,
+`Build`) check a record before it is transacted. Note that malli's `:int` accepts the Integer
+`count` returns while Datahike's `:db.type/long` does not — coerce counts with `long`.
+
+The stores are recomputable from XML; the catalog is not, which is why
+`backup-system-db` / `recreate-system-db!` exist here and there is no equivalent for nodesets.
 
 ## Code layout
 
@@ -68,8 +97,9 @@ src/ua/build_part5.clj    the defparse methods for Part 5's vocabulary; init-par
 src/ua/profiles.clj       make-store!, schema+ generation for non-P5 nodesets
 src/ua/p5_cardinality.clj hand-written cardinality table for Part 5 ReferenceTypes
 src/ua/xml_util.clj       clojure.data.xml wrapper
-src/ua/util.cljc          logging config (Telemere); util-state defstate
-resources/part5/part5-schema+.edn   the Part 5 schema, read at load by ua.putil
+src/ua/system_db.clj      the catalog: what stores exist and how each was derived
+src/ua/util.clj           logging config (Telemere); util-state defstate
+resources/schema/         part5-schema+.edn (read by ua.putil), system-schema+.edn (ua.system-db)
 env/dev/                  user.clj (start/stop), develop/repl.clj (alias-map), develop/dutil.clj
 test/ua/                  clojure.test; db_util_test.clj is the real one
 ```
@@ -113,14 +143,6 @@ over `mine_nodeset.py`.
 
 ## Known hazards — check before trusting
 
-- **schema+ generation writes unreadable idents.** `pro/make-p5-std-ref-type-schema` builds
-  `(keyword "P5StdRefType" browse-name)`, and a browse-name outside ns=0 carries its namespace
-  index — `"1:Contains"` — giving `:P5StdRefType/1:Contains`, which `keyword` will make and the
-  reader will not read. So any nodeset defining its own ReferenceTypes produces a schema+ file
-  that cannot be loaded back — this is what made the former `data/profiles/amb/amb-schema+.edn`
-  unreadable. Hence `pro/make-profile-db!` works only *without* `:schema+-file`. Fixing
-  it needs a decision, not just an escape: stripping the `N:` prefix is right by the file-local-index
-  rule, but then a profile's `Contains` and Part 5's collide in the merged schema.
 - `ua.util/custom-console-output-fn` still opens with `(when-not (= (:kind signal) :agents) ...)`.
   The `:agents` handler is gone and nothing emits that kind, so the guard can never be false.
 - `data/part5/` holds **two** Part 5 core models, and they are not duplicates:

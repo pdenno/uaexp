@@ -173,9 +173,9 @@ path through three namespaces held in three separate stores:
 (supertypes "nsu=http://example-machineworks.com/UA/CNC04/;i=1002")
 ```
 ```clojure
-[["1:CNC04MachineOperationMonitoringType" "http://example-machineworks.com/UA/CNC04/"]
- ["1:MachineOperationMonitoringType"      "http://opcfoundation.org/UA/MachineTool/"]
- ["BaseObjectType"                        "http://opcfoundation.org/UA/"]]
+[["CNC04MachineOperationMonitoringType" "http://example-machineworks.com/UA/CNC04/"]
+ ["MachineOperationMonitoringType"      "http://opcfoundation.org/UA/MachineTool/"]
+ ["BaseObjectType"                      "http://opcfoundation.org/UA/"]]
 ```
 
 Everything is also open to plain Datalog:
@@ -184,7 +184,7 @@ Everything is also open to plain Datalog:
 (d/q '[:find ?id ?bn
 	   :where [?e :Node/id ?id] [?e :Node/browse-name ?bn] [?e :Node/type :UAObjectType]]
 	 @(dbu/connect-atm "http://example-machineworks.com/UA/CNC04/"))
-;; => #{["i=1002" "1:CNC04MachineOperationMonitoringType"]}
+;; => #{["i=1002" "CNC04MachineOperationMonitoringType"]}
 ```
 
 A bare namespace URI names its newest registered version; `{:prefix ... :version ...}` names one

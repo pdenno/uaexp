@@ -26,6 +26,7 @@
     nsuri  ua.nsuri
     pro    ua.profiles
     pu     ua.putil
+    sdb    ua.system-db
     util   ua.util
     xu     ua.xml-util})
 

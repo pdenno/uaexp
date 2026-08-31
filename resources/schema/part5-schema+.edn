@@ -45,6 +45,10 @@
    :Model/publication-date
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
+   :Model/requires
+   #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref
+        :doc "The <RequiredModel> entries of a <Model>: the nodeset's DECLARED dependencies."}
+
    :Model/uri
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
@@ -52,6 +56,17 @@
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
    :Model/xml-schema-uri
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+
+   ;; --------------------------- RequiredModel
+   :RequiredModel/uri
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :RequiredModel/version
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
+
+   :RequiredModel/publication-date
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
 

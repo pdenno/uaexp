@@ -6,8 +6,18 @@
                      [#:Model{:uri
                               "http://example-machineworks.com/UA/CNC04/",
                               :version "0.1.0",
-                              :publication-date
-                              "2026-08-27T00:00:00Z"}]}
+                              :publication-date "2026-08-27T00:00:00Z",
+                              :requires
+                              [#:RequiredModel{:uri
+                                               "http://opcfoundation.org/UA/",
+                                               :version "1.05.02",
+                                               :publication-date
+                                               "2025-01-08T00:00:00Z"}
+                               #:RequiredModel{:uri
+                                               "http://opcfoundation.org/UA/MachineTool/",
+                                               :version "1.02.0",
+                                               :publication-date
+                                               "2024-11-01T00:00:00Z"}]}]}
            #:NodeSet{:aliases
                      [#:Alias{:name "Double", :node-id "i=11"}
                       #:Alias{:name "HasModellingRule",
@@ -20,38 +30,33 @@
                       #:Alias{:name "Range", :node-id "i=884"}
                       #:Alias{:name "EUInformation",
                               :node-id "i=887"}]}
-           #:Node{:type :UAObjectType,
-                  :display-name "CNC04MachineOperationMonitoringType",
-                  :description
-                  "NOT FROM THE STANDARD. Machine-level monitoring for CNC04, extending OPC 40501-1's MachineOperationMonitoringType with the one quantity this shop monitors that 40501-1 does not model.",
-                  :category "CNC04 Local Extension",
-                  :references
-                  [#:P5StdRefType{:HasComponent
-                                  #:IMPL{:ref "ns=1;i=6001"}}
-                   #:P5StdRefType{:SubtypeOf
-                                  #:IMPL{:ref "ns=2;i=26"}}],
-                  :id "ns=1;i=1002",
-                  :browse-name "1:CNC04MachineOperationMonitoringType"}
-           #:Node{:parent-node-id "ns=1;i=1002",
-                  :data-type "Double",
-                  :type :UAVariable,
-                  :references
-                  [#:P5StdRefType{:HasModellingRule
-                                  #:IMPL{:ref "i=80"}}
-                   #:P5StdRefType{:HasTypeDefinition
-                                  #:IMPL{:ref "i=17570"}}
-                   #:P5StdRefType{:HasProperty
-                                  #:IMPL{:ref "ns=1;i=6002"}}
-                   #:P5StdRefType{:HasProperty
-                                  #:IMPL{:ref "ns=1;i=6003"}}
-                   #:P5StdRefType{:ComponentOf
-                                  #:IMPL{:ref "ns=1;i=1002"}}],
-                  :id "ns=1;i=6001",
-                  :category "CNC04 Local Extension",
-                  :description
-                  "NOT FROM THE STANDARD. Temperature of the cutting fluid as delivered to the cut. Watched as a tool-wear indicator: a rise across a shift tends to accompany insert wear. Source tag CNC04_COOL_T (REAL, degC). Optional because the shop does not require every machine to expose it.",
-                  :display-name "CoolantTemperature",
-                  :browse-name "1:CoolantTemperature"}
+           {:Node/type :UAObjectType,
+            :Node/display-name "CNC04MachineOperationMonitoringType",
+            :Node/description
+            "NOT FROM THE STANDARD. Machine-level monitoring for CNC04, extending OPC 40501-1's MachineOperationMonitoringType with the one quantity this shop monitors that 40501-1 does not model.",
+            :Node/category "CNC04 Local Extension",
+            :Node/references
+            [#:P5StdRefType{:HasComponent #:IMPL{:ref "ns=1;i=6001"}}
+             #:P5StdRefType{:SubtypeOf #:IMPL{:ref "ns=2;i=26"}}],
+            :Node/id "ns=1;i=1002",
+            :Node/browse-name "CNC04MachineOperationMonitoringType",
+            :IMPL/browse-name-index 1}
+           {:Node/parent-node-id "ns=1;i=1002",
+            :IMPL/browse-name-index 1,
+            :Node/data-type "Double",
+            :Node/type :UAVariable,
+            :Node/references
+            [#:P5StdRefType{:HasModellingRule #:IMPL{:ref "i=80"}}
+             #:P5StdRefType{:HasTypeDefinition #:IMPL{:ref "i=17570"}}
+             #:P5StdRefType{:HasProperty #:IMPL{:ref "ns=1;i=6002"}}
+             #:P5StdRefType{:HasProperty #:IMPL{:ref "ns=1;i=6003"}}
+             #:P5StdRefType{:ComponentOf #:IMPL{:ref "ns=1;i=1002"}}],
+            :Node/id "ns=1;i=6001",
+            :Node/category "CNC04 Local Extension",
+            :Node/description
+            "NOT FROM THE STANDARD. Temperature of the cutting fluid as delivered to the cut. Watched as a tool-wear indicator: a rise across a shift tends to accompany insert wear. Source tag CNC04_COOL_T (REAL, degC). Optional because the shop does not require every machine to expose it.",
+            :Node/display-name "CoolantTemperature",
+            :Node/browse-name "CoolantTemperature"}
            #:Node{:type :UAVariable,
                   :display-name "EngineeringUnits",
                   :references

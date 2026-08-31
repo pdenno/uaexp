@@ -88,6 +88,36 @@
   [nodeset]
   (->> nodeset :NodeSet/content (some :NodeSet/models) first :Model/version))
 
+;;; ------------------------------- store ids -------------------------------------------
+;;; A node is addressed by ExpandedNodeId; a STORE is identified by the pair <namespace, version>.
+;;; The system DB needs one string to key a catalog entry on, and a consumer -- Tessell's
+;;; orchestrator, say -- needs to get from that string back to the pair that connect-atm takes.
+;;; Hence these two, here rather than in ua.db-util so that they travel with the rest of the
+;;; addressing vocabulary.
+
+(def ^:private store-id-sep
+  "'|' cannot occur unencoded in a URI (RFC 3986), so splitting on it is unambiguous even though
+   the URI itself is full of ':' and '/'."
+  "|")
+
+(defn store-id
+  "Return the catalog identifier for a store, from {:prefix .. :version ..} or from the two parts.
+     \"http://opcfoundation.org/UA/|1.05.04\""
+  ([{:keys [prefix version]}] (store-id prefix version))
+  ([prefix version]
+   (assert (and prefix version) "A store is identified by a namespace URI and a version.")
+   (str prefix store-id-sep version)))
+
+(defn parse-store-id
+  "Return {:prefix .. :version ..} for a store id, or nil if s is not one. This is what turns a
+   system-DB answer back into something connect-atm accepts."
+  [s]
+  (when (string? s)
+    (let [i (str/last-index-of s store-id-sep)]
+      (when i
+        {:prefix (subs s 0 i)
+         :version (subs s (inc i))}))))
+
 ;;; ------------------------------- versions -------------------------------------------
 (defn version-vec
   "Return a version string as a vector of integers for comparison. \"1.05.04\" -> [1 5 4].

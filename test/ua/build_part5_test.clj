@@ -46,20 +46,24 @@
   (testing "Testing parse of various small components"
     (testing "Testing parse of UAVariable"
       (is (= (do (reset! pu/parse-depth 0) (pu/rewrite-xml example-ua-variable))
-             #:Node{:type :UAVariable,
-                    :id "ns=1;i=15740",
-                    :browse-name "1:OperationalMode",
-                    :parent-node-id "ns=1;i=15698",
-                    :data-type "ns=1;i=3006",
-                    :display-name "OperationalMode",
-                    :description
-                    "The OperationalMode variable provides information about the current operational mode. Allowed values are described in OperationalModeEnumeration, see ISO 10218-1:2011 Ch.5.7 Operational Modes.",
-                    ;; NodeIds are still file-local here; ua.nsuri canonicalizes them at load, not at parse.
-                    ;; Note the reverse HasComponent arrives as its inverse, ComponentOf.
-                    :references
-                    [#:P5StdRefType{:HasTypeDefinition #:IMPL{:ref "i=63"}}
-                     #:P5StdRefType{:HasModellingRule  #:IMPL{:ref "i=78"}}
-                     #:P5StdRefType{:ComponentOf       #:IMPL{:ref "ns=1;i=15698"}}]})))))
+             {:Node/type :UAVariable,
+              :Node/id "ns=1;i=15740",
+              ;; The BrowseName's "1:" is a namespace index, as file-local as a NodeId's ns=.
+              ;; Parsing splits it off; ua.nsuri resolves the index at load, dropping it when it
+              ;; names this nodeset's own namespace and recording :Node/browse-name-uri otherwise.
+              :Node/browse-name "OperationalMode",
+              :IMPL/browse-name-index 1,
+              :Node/parent-node-id "ns=1;i=15698",
+              :Node/data-type "ns=1;i=3006",
+              :Node/display-name "OperationalMode",
+              :Node/description
+              "The OperationalMode variable provides information about the current operational mode. Allowed values are described in OperationalModeEnumeration, see ISO 10218-1:2011 Ch.5.7 Operational Modes.",
+              ;; NodeIds are still file-local here; ua.nsuri canonicalizes them at load, not at parse.
+              ;; Note the reverse HasComponent arrives as its inverse, ComponentOf.
+              :Node/references
+              [#:P5StdRefType{:HasTypeDefinition #:IMPL{:ref "i=63"}}
+               #:P5StdRefType{:HasModellingRule  #:IMPL{:ref "i=78"}}
+               #:P5StdRefType{:ComponentOf       #:IMPL{:ref "ns=1;i=15698"}}]})))))
 
 (def x5 (-> "data/part5/OPC_UA_Core_Model_2515947497.xml" (xu/read-xml :root-name "p5")))
 (def p5 (-> "data/part5/p5-nodeset.edn" slurp edn/read-string))

@@ -2099,3 +2099,83 @@ Q2: Appending a build record seems enticing. However, if I understand correctly,
 correct nodeset DB. Is that the way you see it? Something like "<uri>|<version>|<SHA>". Your thoughts on that?
 
 Q3: Yes on Malli schema.
+**** Claude
+  1:Contains — and it's now fixed
+
+  A BrowseName is a QualifiedName (Part 3 §8.3), text form <index>:<name> with index 0 omitted:
+
+  <UAReferenceType NodeId="i=31"        BrowseName="References"/>   <!-- base UA -->
+  <UAReferenceType NodeId="ns=1;i=4002" BrowseName="1:Contains"/>   <!-- AMB -->
+
+  defparse :p5/BrowseName took that verbatim, and make-p5-std-ref-type-schema did (keyword "P5StdRefType" browse-name). keyword builds anything; the reader is what
+  rejects it. So it was the same defect as the NodeId one — a file-local index baked into something persistent — in the one place nsuri didn't reach.
+
+  Fixed as you asked. Parsing splits the index off as :IMPL/browse-name-index; nsuri resolves it, dropping it when it names the store's own namespace and recording
+  :Node/browse-name-uri otherwise — the same "implied inside, explicit outside" rule as foreign keys. I put the resolution inside the general map branch rather than
+  reusing the :IMPL/namespace-index case, because that one returns without recursing (right for a leaf QualifiedName, wrong for a node, which is where a BrowseName gets
+  merged).
+
+  Idents are now :P5StdRefType/Contains. A nice edge case survived: AMB's NamespaceMetadata object has BrowseName="1:http://opcfoundation.org/UA/AMB/" — only the 1: came
+  off.
+
+  That uncovered a third bug behind it: the six AMB ReferenceTypes got :db/cardinality nil, because p5-cardinality's table only covers Part 5. This was the
+  :db/cardinality is nil ToDo already in the file. Unknown ReferenceTypes now default to :db.cardinality/many with a warning — the safe direction, matching what
+  learn-schema-basic already does, since a wrong :one silently discards references. make-profile-db! now works end to end with :schema+-file, which it never has.
+
+  Consequences handled: all four stores rebuilt, build_part5_test's expectation updated (it pinned "1:OperationalMode"), README regenerated. 4 tests / 9 assertions / 0
+  failures.
+
+  Q1 — concur
+
+  The flow is exactly as you describe, and the parse must live where Tessell can copy it, so store-id / parse-store-id went into ua.nsuri beside the other addressing. |
+  is safe: it can't appear unencoded in a URI (RFC 3986), so the split is unambiguous despite the URI being full of : and /.
+
+  Q2 — I don't think you need the SHA in the identifier
+
+  There is exactly one directory per <uri, version>, and create-ua-db! deletes and recreates in place. So a build record describes how the current bytes came to be, not
+  a separate connectable artifact — <uri>|<version>|<SHA> would name something that doesn't exist on disk.
+
+  The stronger argument is the opposite one: a stable identifier is what you want for describing. Putting the SHA in the
+    id would invalidate every reference the orchestrator held, every rebuild. So :store/id stays stable, :store/builds is the history, and :store/current-build says which
+  one made what's on disk. Your instinct — "the orchestrator needs to know which" — is right; it's answered by a pointer rather than by the name.
+
+  What's built
+
+  src/ua/system_db.clj on the Sched6 design (singleton SYSTEM root, with-connect-atom, backup-system-db/recreate-system-db!, init-system-db! + defstate), schema in
+  resources/schema/system-schema+.edn (35 idents), malli Store/Build validation, ua.system-db kept a leaf so the loader can call record-build! without a cycle.
+  db-cfg-map grew a {:type :system} branch, and discover-stores! now skips $UAEXP_DB/system — it would otherwise have registered the catalog as a nodeset store called
+  {:prefix "system//" :version "system"}.
+
+  I also implemented <RequiredModel> parsing, which didn't exist at all — without it there is no "declared" half to compare against. All four stores recorded:
+
+  :declared-not-used ["http://opcfoundation.org/UA/DI/"]    ; MachineTool
+
+  That's the observation an earlier session made by hand ("No DI references at all, despite the RequiredModel") arriving as a query. namespaces-wanted reports the four
+  namespaces MachineTool needs and we don't have; stale-stores is empty; catalog → connect-key → connect-atm round-trips; backup/restore round-trips (deleted the DB,
+  restored from data/system-db.edn, all four stores and their builds intact).
+
+  Two corrections to things I told you earlier
+
+  The "95 vs 92 lookups anomaly" is not an anomaly. AMB is 96 content items → 1 ignored → 95 loaded → 92 with node ids; the other 3 are <Models>, <Aliases>,
+  <NamespaceUris>. Structure, not loss. I've kept the counts as recorded facts and added :build/content-count with a docstring saying why they differ, but I was wrong to
+  call it a data-quality signal.
+
+  malli didn't need a REPL restart — watch-deps hot-loaded it, since adding a library is a pure addition rather than replacing a loaded one.
+
+  One gotcha worth knowing: malli's :int accepts the Integer count returns, but Datahike's :db.type/long rejects it. Validation passed and the transaction failed. Counts
+  are coerced with long; it's in CLAUDE.md.
+
+  Not yet done: make-profile-db! doesn't call record-build! itself — I drove it manually to validate the design. Wiring it in is the obvious next step, and it needs
+  pu/nyi and pro/ignored-nodes reset around the parse so those two of the seven get captured.
+**** Me
+(sdb/list-stores)
+["http://example-machineworks.com/UA/CNC04/|0.1.0"
+ "http://opcfoundation.org/UA/AMB/|1.01.1"
+ "http://opcfoundation.org/UA/MachineTool/|1.02.0"
+ "http://opcfoundation.org/UA/|1.05.04"]
+
+ Nice! I didn't even have to ask!
+
+Take a look at how `~/Documents/git/Sched6/resources/sched6/resources/SCHED6_MCP_GUIDE.md` describes uses of `db_query`.
+Look also at what we currently have in `~Documents/git/Tessell/resources/tessell/resources/TESSELL_MCP_GUIDE.md`.
+Can you suggest a rewrite of the latter that includes helpful examples for Tessell's orchestrator's use uaexp's DBs?

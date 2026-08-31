@@ -1,0 +1,158 @@
+;;; Schema for uaexp's system DB, in schema+ format (see ua.db-util/datahike-schema).
+;;;
+;;; The system DB is a CATALOG, not an API: it holds what a store cannot say about itself, so a
+;;; consumer -- Tessell's orchestrator, say -- can survey what nodesets exist and then connect to
+;;; one, rather than being taught a tool vocabulary.
+;;;
+;;; Shape: one :system root -> many :store (one per <namespace, version> on disk) -> many :build
+;;; (append-only; one per time that store was made). Facts about the NAMESPACE live on the store;
+;;; facts about a DERIVATION live on the build, because every one of them can change when the
+;;; source XML or the parser changes.
+{
+ ;; --------------------------- system (the singleton root)
+ :system/name
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :unique :db.unique/identity
+      :doc "\"SYSTEM\". There is exactly one of these; it is what backup and restore walk from."}
+
+ :system/stores
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :isComponent true
+      :doc "The catalog: one entry per store that has been built."}
+
+ :system/namespaces-wanted
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :isComponent true
+      :doc "Namespaces some nodeset needs but for which no store has been built. This is the answer to 'what am I missing?', and it is derived from builds rather than declared."}
+
+ ;; --------------------------- store (one per <namespace uri, version>)
+ :store/id
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :unique :db.unique/identity
+      :doc "\"<namespace uri>|<version>\", from ua.nsuri/store-id. THE identifier: stable across rebuilds, and ua.nsuri/parse-store-id turns it back into the {:prefix .. :version ..} that connect-atm takes."}
+
+ :store/prefix
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "The namespace URI the store holds. Also queryable on its own, so a survey need not parse :store/id."}
+
+ :store/version
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "The version of that namespace, from the nodeset's own <Models>."}
+
+ :store/publication-date
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "<Model PublicationDate>. Kept as the string the file gave, not parsed to an instant."}
+
+ :store/model-version
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "<Model ModelVersion>, which is not the same field as Version."}
+
+ :store/builds
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :isComponent true
+      :doc "Every build of this store, oldest and newest alike. Append-only."}
+
+ :store/current-build
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/ref
+      :doc "The build that produced the bytes now on disk. There is only ever one store per <namespace, version>: a rebuild replaces it in place, so this is how you tell what you are actually querying."}
+
+ ;; --------------------------- build (one derivation of one store)
+ :build/id
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :unique :db.unique/identity
+      :doc "\"<store id>|<ISO instant>\". Unique so a build can be referred to; not an access path."}
+
+ :build/at
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/instant
+      :doc "When the store was built."}
+
+ :build/uaexp-sha
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "The uaexp commit that built it, so a store made by an older parser can be found."}
+
+ :build/source-file
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "Path of the nodeset XML or EDN this was built from."}
+
+ :build/source-sha256
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "Digest of that file. A mismatch against the file today means the store is stale -- which makes 'which stores need rebuilding?' a query rather than an inspection."}
+
+ :build/node-count
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/long
+      :doc "Nodes loaded, i.e. entities carrying :Node/id."}
+
+ :build/content-count
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/long
+      :doc "Top-level <UANodeSet> children loaded. Exceeds :build/node-count by the nodeset-level records (<Models>, <Aliases>, <NamespaceUris>), so the two differing is structure, not loss."}
+
+ :build/ignored-count
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/long
+      :doc "Content dropped before loading -- see :build/ignored."}
+
+ :build/requires
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :isComponent true
+      :doc "DECLARED dependencies: the nodeset's <RequiredModel> entries."}
+
+ :build/foreign
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :isComponent true
+      :doc "ACTUAL dependencies: the namespaces this nodeset really references. Comparing these with :build/requires is the point of holding both -- a declared model never referenced, or a namespace referenced without being declared, are both worth knowing."}
+
+ :build/nyi-tags
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/keyword
+      :doc "XML tags encountered with no defparse. The parser's coverage gap for this file, and the honest bound on any completeness claim."}
+
+ :build/ignored
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/ref, :isComponent true
+      :doc "Content recognised but deliberately not stored -- <Extensions>, so far, which carry the vendor tool that authored the profile."}
+
+ :build/schema-collisions
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/keyword
+      :doc "Attributes the nodeset redefined that Part 5 already defines. The nodeset's version is ignored, so this records what was overruled."}
+
+ :build/unexpected-entity-types
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/string
+      :doc "Entity-type namespaces learned from the nodeset that expected-namespaces did not anticipate."}
+
+ :build/missing-entity-types
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/string
+      :doc "Entity-type namespaces expected-namespaces anticipated and the nodeset did not have."}
+
+ :build/note
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/string
+      :doc "Anything else worth saying about this build, in prose."}
+
+ ;; --------------------------- requires (one <RequiredModel>)
+ :requires/uri
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "Namespace URI of the required model."}
+
+ :requires/version
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "Version required, as declared."}
+
+ :requires/publication-date
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "PublicationDate required, as declared."}
+
+ ;; --------------------------- foreign (a namespace actually referenced)
+ :foreign/uri
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "Namespace URI referenced from this nodeset."}
+
+ :foreign/target-count
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/long
+      :doc "Distinct nodes referenced in that namespace. References collapse on :Node/ref, so this counts targets, not occurrences."}
+
+ ;; --------------------------- wanted (a namespace with no store)
+ :wanted/uri
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string, :unique :db.unique/identity
+      :doc "A namespace referenced or required by some nodeset for which no store has been built."}
+
+ :wanted/wanted-by
+ #:db{:cardinality :db.cardinality/many, :valueType :db.type/string
+      :doc ":store/id of each store that needs it."}
+
+ ;; --------------------------- ignored content
+ :ignored/kind
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/keyword
+      :doc "What sort of thing was dropped, e.g. :Extensions."}
+
+ :ignored/content
+ #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+      :doc "Its content, as read. Kept verbatim because we do not yet know what it is worth."}
+}

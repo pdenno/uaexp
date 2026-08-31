@@ -92,13 +92,28 @@
                                             (parse-long (part :UATypes/NamespaceIndex))))))
 
 ;;; --------------------------------- Stuff for making schema from schema-edn -----------------------------------
+(defn ref-cardinality
+  "Return the cardinality recorded for browse-name in the Part 5 table, under key (:cardinality or
+   :inverse-cardinality).
+
+   p5-cardinality covers Part 5's ReferenceTypes only, and its values are deliberate guesses at
+   what the semantics should be. A nodeset that defines ReferenceTypes of its own -- AMB's
+   Contains/LocatedIn family, for instance -- is not in it, and nothing in the nodeset says what
+   the cardinality ought to be. Default to many: it is the common case for UA references, it is
+   what learn-schema-basic already does when it sees a vector, and being wrong that way costs a
+   collection of one, whereas a wrong :one silently discards references."
+  [browse-name k]
+  (or (-> p5-card/card-table (get browse-name) k)
+      (do (log! :warn (str "No cardinality known for ReferenceType " browse-name " (" (name k) "); using many."))
+          :db.cardinality/many)))
+
 (defn make-p5-std-ref-type-schema
   "Return a vector of DataHike schema for Part 5 ReferenceTypes (P5RefType) using the structure produced from Part 5 XML and the P5 cardinality table."
   [p5]
   (letfn [(ref2schema [{:Node/keys [browse-name category documentation id inverse-name is-abstract? release-status symmetric?]}]
             (let [fwd-schema (cond-> {:db/ident (keyword "P5StdRefType" browse-name)
                                       :db/valueType :db.type/ref
-                                      :db/cardinality (->  p5-card/card-table (get browse-name) :cardinality)
+                                      :db/cardinality (ref-cardinality browse-name :cardinality)
                                       :uaexp/id id}
                                documentation           (assoc :db/doc documentation)
                                category                (assoc :uaexp/category category)
@@ -108,7 +123,7 @@
                   rev-schema (when inverse-name
                                (cond-> {:db/ident (keyword "P5StdRefType" inverse-name)
                                         :db/valueType :db.type/ref
-                                        :db/cardinality (->  p5-card/card-table (get browse-name) :inverse-cardinality)
+                                        :db/cardinality (ref-cardinality browse-name :inverse-cardinality)
                                         :uaexp/inverse? true
                                         :uaexp/id id}
                                  documentation           (assoc :db/doc documentation)

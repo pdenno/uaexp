@@ -17,7 +17,8 @@
   "Return the registry key for a store. Accepts the key itself, or a bare namespace URI, in which
    case the newest registered version of that namespace is named."
   [k]
-  (cond (map? k)     k
+  (cond (= :system k) k
+        (map? k)     k
         (string? k)  (let [versions (->> @databases-atm keys (filter #(= k (:prefix %))) (map :version))]
                        (when (seq versions)
                          {:prefix k :version (nsuri/newest versions)}))
@@ -32,8 +33,8 @@
 (defn register-db
   "Add a store configuration. k is {:prefix <namespace uri> :version <version string>}."
   [k config]
-  (assert (and (map? k) (:prefix k) (:version k))
-          "A store is registered under {:prefix <namespace uri> :version <version string>}.")
+  (assert (or (= :system k) (and (map? k) (:prefix k) (:version k)))
+          "A store is registered under {:prefix <namespace uri> :version <version string>}; the system DB under :system.")
   (log! :debug (str "Registering store " k))
   (swap! databases-atm #(assoc % k config)))
 
@@ -58,15 +59,19 @@
      /opt/uaexp/http:/opcfoundation.org/UA/MachineTool/1.02.0
    (the filesystem collapses the '//' of the scheme). Datahike will not create the intervening
    directories, so we do."
-  [{:keys [prefix version in-mem?]}]
-  (assert (and prefix version) "A store is identified by a namespace URI and a version.")
+  [{:keys [type prefix version in-mem?]}]
+  (assert (or (= :system type) (and prefix version))
+          "A store is identified by a namespace URI and a version; the system DB by {:type :system}.")
   (let [base-dir (or (-> (System/getenv) (get "UAEXP_DB"))
                      (throw (ex-info "Set the environment variable UAEXP_DB to the directory containing UA databases." {})))
-        db-dir (str base-dir "/" prefix "/" version)
+        ;; The system DB sits beside the namespace trees rather than inside one: it is uaexp's own
+        ;; bookkeeping, not a nodeset. discover-stores! knows to skip it.
+        name- (if (= :system type) "system" (nsuri/store-id prefix version))
+        db-dir (if (= :system type) (str base-dir "/system") (str base-dir "/" prefix "/" version))
         ;; konserve requires every store config to carry a UUID :id (datahike 0.7 / konserve 0.7).
         ;; Deriving it from the store's own name keeps it stable across runs -- a fresh random one
         ;; would not find the store it made last time -- and needs nothing recorded anywhere.
-        store-id (java.util.UUID/nameUUIDFromBytes (.getBytes (str prefix "|" version) "UTF-8"))]
+        store-id (java.util.UUID/nameUUIDFromBytes (.getBytes ^String name- "UTF-8"))]
     (when-not in-mem?
       (-> db-dir java.io.File. .getParentFile .mkdirs))
     (cond-> db-template
@@ -86,6 +91,15 @@
           error? (throw (ex-info "No such store" {:asked-for k :resolved-to key-
                                                   :registered (vec (keys @databases-atm))}))
           :else nil)))
+
+(defmacro with-connect-atom
+  "Bind conn-sym to a connection for db-id, run body, and release the connection afterwards.
+   Datahike connections hold resources; the store-building path is short-lived enough not to care,
+   but the system DB is read on nearly every operation."
+  [[conn-sym db-id] & body]
+  `(let [~conn-sym (connect-atm ~db-id)]
+     (try ~@body
+          (finally (d/release ~conn-sym)))))
 
 (defn- path->store-key
   "Invert db-cfg-map's layout: <base>/http:/opcfoundation.org/UA/1.05.04 names version 1.05.04 of
@@ -108,11 +122,16 @@
   []
   (let [base-dir (or (-> (System/getenv) (get "UAEXP_DB"))
                      (throw (ex-info "Set the environment variable UAEXP_DB to the directory containing UA databases." {})))
+        system-dir (str base-dir "/system")
         candidates (->> (file-seq (java.io.File. base-dir))
                         (filter #(and (.isDirectory %)
                                       (some (fn [f] (str/ends-with? (.getName f) ".ksv"))
                                             (or (seq (.listFiles %)) []))))
-                        (map #(.getPath %)))]
+                        (map #(.getPath %))
+                        ;; The system DB lives under UAEXP_DB too, but it is not a nodeset store:
+                        ;; path->store-key would invent {:prefix "system//" :version "system"} for
+                        ;; it and it would be registered on the strength of having no root.
+                        (remove #(str/starts-with? % system-dir)))]
     (->> candidates
          (keep (fn [path]
                  (let [k (path->store-key base-dir path)]

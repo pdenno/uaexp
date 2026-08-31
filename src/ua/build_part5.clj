@@ -34,16 +34,31 @@
   [xmap]
   {:NodeSet/aliases (->> xmap :xml/content (mapv rewrite-xml))})
 
-(defparse :p5/Model
-  "We collect models into a property if only because the XML does too."
+(defparse :p5/RequiredModel
+  "A model this nodeset declares it depends on, with the version and publication date it expects.
+   This is the nodeset's own statement of what it needs -- worth keeping distinct from the
+   namespaces it is actually observed to reference, which is a different question and often a
+   different answer."
   [{:xml/keys [attrs]}]
-  (let [{:keys [ModelUri XmlSchemaUri Version PublicationDate ModelVersion]} attrs]
+  (let [{:keys [ModelUri Version PublicationDate]} attrs]
+    (cond-> {}
+      ModelUri            (assoc :RequiredModel/uri ModelUri)
+      Version             (assoc :RequiredModel/version Version)
+      PublicationDate     (assoc :RequiredModel/publication-date PublicationDate))))
+
+(defparse :p5/Model
+  "We collect models into a property if only because the XML does too.
+   <Model> has content as well as attributes: its <RequiredModel> children."
+  [{:xml/keys [attrs content]}]
+  (let [{:keys [ModelUri XmlSchemaUri Version PublicationDate ModelVersion]} attrs
+        required (->> content (filterv #(= :p5/RequiredModel (:xml/tag %))) (mapv rewrite-xml))]
     (cond-> {}
       ModelUri            (assoc :Model/uri ModelUri)
       XmlSchemaUri        (assoc :Model/xml-schema-uri XmlSchemaUri)
       Version             (assoc :Model/version Version)
       PublicationDate     (assoc :Model/publication-date PublicationDate)
-      ModelVersion        (assoc :Model/model-version ModelVersion))))
+      ModelVersion        (assoc :Model/model-version ModelVersion)
+      (seq required)      (assoc :Model/requires required))))
 
 (defparse :p5/Models
   "We collect models into a property if only because the XML does too."
