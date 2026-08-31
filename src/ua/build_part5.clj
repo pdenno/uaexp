@@ -147,7 +147,17 @@
 (defparse :p5/AccessLevel         "doc" [{:xml/keys [content]}] {:Node/access-level content})
 (defparse :p5/AccessRestrictions  "doc" [{:xml/keys [content]}] {:Node/access-restictions content})
 (defparse :p5/ArrayDimensions     "doc" [{:xml/keys [content]}] {:Node/array-dimensions (edn/read-string content)})
-(defparse :p5/BrowseName          "doc" [{:xml/keys [content]}] {:Node/browse-name content})
+(defparse :p5/BrowseName
+  "A BrowseName is a QualifiedName (Part 3, 8.3), written <namespace index>:<name> with index 0
+   left off. The index is file-local -- the same hazard as a NodeId's ns= -- so it must not reach
+   the DB: ua.nsuri resolves :IMPL/browse-name-index into :Node/browse-name-uri at load, and drops
+   it when the name is in the store's own namespace, where it is implied. Keeping the bare name in
+   :Node/browse-name is also what stops schema idents like :P5StdRefType/1:Contains, which keyword
+   will build and the reader will not read."
+  [{:xml/keys [content]}]
+  (let [[_ idx nm] (re-matches #"^(?:(\d+):)?(.*)$" content)]
+    (cond-> {:Node/browse-name nm}
+      idx (assoc :IMPL/browse-name-index (parse-long idx)))))
 (defparse :p5/Category            "doc" [{:xml/keys [content]}] {:Node/category content})
 (defparse :p5/DataType            "doc" [{:xml/keys [content]}] {:Node/data-type content})
 (defparse :p5/Description         "doc" [{:xml/keys [content]}] {:Node/description content})

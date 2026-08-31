@@ -141,9 +141,24 @@
 
                     (map? obj)
                     (let [m (reduce-kv (fn [m k v] (assoc m (cn k) (cn v))) {} obj)]
-                      (if-let [id (:Node/id m)]
-                        (assoc m :Node/id (second (split-node-id id)))
-                        m))
+                      (cond-> m
+                        (:Node/id m)
+                        (update :Node/id #(second (split-node-id %)))
+
+                        ;; A BrowseName is a QualifiedName, so it carries a namespace index with
+                        ;; the same hazard as a NodeId's. Handled here rather than in the
+                        ;; :IMPL/namespace-index branch above because that one returns without
+                        ;; recursing -- right for a leaf QualifiedName, wrong for a node, which is
+                        ;; where a BrowseName is merged. The URI is recorded only when it is not
+                        ;; this nodeset's own; inside the store it is implied, exactly as for refs.
+                        (contains? m :IMPL/browse-name-index)
+                        (as-> $m
+                            (let [idx (:IMPL/browse-name-index $m)
+                                  uri (or (get idx->uri idx)
+                                          (throw (ex-info "BrowseName names a namespace index the nodeset does not declare."
+                                                          {:index idx :known (sort (keys idx->uri))})))]
+                              (cond-> (dissoc $m :IMPL/browse-name-index)
+                                (not= uri own) (assoc :Node/browse-name-uri uri))))))
 
                     (vector? obj) (mapv cn obj)
                     :else obj))]

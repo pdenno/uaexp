@@ -1,4 +1,4 @@
-{:paths   ["src"]
+{:paths   ["src" "resources"]
  :deps    {#_#_camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.3"}
            com.cemerick/url                    {:mvn/version "0.1.1"}
            com.taoensso/timbre                 {:mvn/version "6.8.0"} ; Keep to reign in datahike.
@@ -14,17 +14,15 @@
            org.clojure/data.xml                {:mvn/version "0.2.0-alpha11"}
            #_#_org.slf4j/slf4j-nop                 {:mvn/version "2.0.17"}}    ; Stop spurious logging!
  ;; See .dir-locals.el for some defaults on CIDER C-c M-j
- :aliases {:dev        {:extra-paths    ["test" "env/dev" "resources"]
+ :aliases {:dev        {:extra-paths    ["test" "env/dev"]
                         :jvm-opts       ["-XX:-OmitStackTraceInFastThrow"] ; https://www.metosin.fi/blog/missing-stacktraces/
                         :extra-deps     {com.lambdaisland/classpath      {:mvn/version "0.9.74"}
                                          expound/expound                 {:mvn/version "0.9.0"} ; more readable spec messages
                                          org.clojure/tools.namespace     {:mvn/version "1.5.1"}}}
 
-           :test       {:extra-paths    ["src/server" "test" "env/dev"]
-                        :main-opts      ["-m" "kaocha.runner"]
-                        :extra-deps     {lambdaisland/kaocha          {:mvn/version "1.91.1392"}
-                                         com.lambdaisland/classpath   {:mvn/version "0.9.74"}
-                                         org.clojure/tools.namespace  {:mvn/version "1.5.1"}}}
+           :test       {:extra-paths    ["src" "test" "env/dev"]
+                        :main-opts      ["-m" "runner"]
+                        :extra-deps     {org.clojure/tools.namespace  {:mvn/version "1.5.1"}}}
 
            :build    {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}}
                       :ns-default build}}}
@@ -47,13 +45,3 @@
 ;;;   |          | org.clojure/data.xml            | 0.2.0-alpha9 | 0.2.0-alpha11 |
 ;;;   |          | org.clojure/tools.logging       | 1.3.0        | 1.3.1         |
 ;;;   |          | org.clojure/tools.namespace     | 1.5.0        | 1.5.1         |
-
-
-;;;   |    :file |                       :name |  :current |  :latest |
-;;;   |----------+-----------------------------+-----------+----------|
-;;;   | deps.edn |       com.taoensso/telemere | 1.0.0-RC5 |    1.0.0 |
-;;;   |          | com.taoensso/telemere-slf4j | 1.0.0-RC5 |    1.0.0 |
-;;;   |          |         com.taoensso/timbre |     6.6.1 |    6.7.1 |
-;;;   |          |  io.github.paintparty/bling |     0.5.2 |    0.6.0 |
-;;;   |          |      io.replikativ/datahike |  0.6.1595 | 0.6.1596 | ; not updated
-;;;   |          |                 mount/mount |    0.1.21 |   0.1.23 |

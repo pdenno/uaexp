@@ -1806,3 +1806,296 @@ The regression test I wrote asserted zero leftover markers — a property only m
 ** [2026-08-28 Fri] We finish implementing changes to referencing of nodes and versioning of DBs
    * (dbu/connect-atm "http://example-machineworks.com/UA/CNC04/") => #<Connection@8a1449b: #datahike/DB {:max-tx 536870915 :max-eid 243}>
    * (dbu/resolve-db-id {:db/id 246} "http://example-machineworks.com/UA/CNC04/")
+*** We update version too
+   * DH 0.7 uses fancy konserv UUIDs. We're okay with it.
+
+*** Works
+
+Before we commit to creating a system DB, I wonder how I should best use uaexp in oide.
+But even before that, let's start calling "oide" "Tessell" (as in tessellation, but also something I might be able to sell ;^).
+Should uaexp be a library referenced by Tessell?
+It would be unusual to have a library that manages DBs.
+Is uaexp just something that makes nodesets for consuptions by Tessell?
+That might be good. I could make similar small systems to produce content for the works of other SDOs.
+It would be easy enough to add `dbu/resolve-node` and a few other functions (maybe some involving uaexp's hypothetical system DB).
+I like what you are suggesting as the role of the System DB, I just want to be sure we've found the best way to use this code with Tessell.
+The `db_query` MCP tool and DB schemas MCP resource has proven to be a powerful capability in the hands of the sched6 MCP orchestrator.
+So maybe it is just a matter of making the orchestrator aware of these DBs.
+
+More generally speaking, I intend for Tessell to be my foray into human/AI teaming on integration problems.
+It will provide a foundation for a roadmapping exercise and publications.
+Considering just OPC UA/CESMII profiles alone, there are probably several kinds of use cases:
+mapping information into schema, reconciling differences between schema, finding the right information for analyses, and more.
+We'd leverage what we learned from Sched6 about interviewing with DS and "persistent project scope".
+Your thoughts?
+** [2026-08-29 Sat] Just a little time
+**** Me
+I don't think there is anything holding back Tessell from using DH 0.7. We probably hit the issue with UUIDs and gave up without a fight. I'm used to small bumps from
+  DH version increments. I'm guessing that if we applied the same mods to Tessell that you just did to uaexp, we'd be in business with 0.7. This makes me wonder
+  whether a separate MCP server for uaexp is really the right move right now. Tessell could use its own db_query and resolve-node against uaexp's DBs. Actually it could
+  also use its db_query against uaexp's system DB, rather than list_namespaces. Your thoughts?
+
+**** Claude
+
+● You're right on both counts, and Tessell's own code confirms the diagnosis.
+
+  The 0.7 blocker is the same two lines
+
+  oide/src/oide/sutil.clj:97-98:
+
+  (not in-mem?) (assoc :store {:backend :file :path db-dir})        ; no :id
+  in-mem?       (assoc :store {:backend :mem :id (name id)})        ; :id is a String
+
+  Identical to what uaexp had — and those are exactly the two things konserve 0.7 rejects: a file store with no :id, and a :mem store whose :id isn't a UUID. Same fix:
+  derive a stable UUID from the store's own name (type + id, "system" for the system DB).
+
+  And RADmapper imposes no constraint — it's copied into src/oide/radmapper, not a dependency. So Tessell's only Datahike constraint is Tessell's own two lines.
+
+  One real cost before you do it: 421 MB of existing stores — dbs/projects (15 projects, 408 MB) and dbs/system (13 MB). A 0.7 upgrade means rebuilding them, and unlike
+  uaexp's nodesets these aren't regenerable from source files. The 15 run DBs are your experimental record. Worth deciding whether they need migrating or whether the
+  .md/.pdf reports in data/projects/ are the record you actually keep. (Also: Tessell sets :allow-unsafe-config true because Datahike bakes an absolute :base-dir into
+  each store — uaexp doesn't, so if uaexp's stores ever move, expect the same complaint.)
+
+  And yes — drop the MCP server idea
+
+  Version skew was the entire justification. Remove it and my proposal is over-engineering. Tessell using its own db_query and its own resolve-node against uaexp's
+  stores is simpler and better:
+
+  - The orchestrator already knows the db_query + DB_SCHEMA.md idiom, and it's proven. Adding nodeset stores is an increment in data, not a new tool vocabulary to learn.
+  - One process, one transport, no server lifecycle.
+  - Your point about the system DB is the sharpest part: db_query against uaexp's catalog beats a list_namespaces tool, because the catalog becomes data the orchestrator
+    can explore rather than an API it must be taught. Same reason db_query beat a pile of bespoke accessors in sched6.
+
+  It also improves the SDO-family story rather than weakening it. What those siblings need to share isn't a protocol — it's a store shape. Each SDO gets a batch
+  converter that emits stores in the common shape; Tessell reads all of them with the one tool it already has. Declarative, no runtime coupling, and a new source costs a
+  converter rather than a service.
+
+  Where the seam actually falls
+
+  Split uaexp by what has to run where:
+
+  Producer — stays in uaexp, never enters Tessell. XML parsing, nsuri/canonicalize-nodeset, load-nodeset!, create-ua-db!. This is the half that's genuinely OPC-UA-shaped
+  and would be written differently for QIF or AutomationML.
+
+  Reader — Tessell needs this in-process. nsuri (address parse/build), the store-config slice of db_util (path layout, UUID derivation, discover-stores!), and
+  resolve-node / expand-n / nodeset-aliases. Call it ~300 lines, and note it doesn't manage DBs — it addresses and reads them, which answers your "unusual for a library"
+  worry.
+
+  I'd copy it into Tessell for now, following the RADmapper precedent you've already set, and extract a real library only if a third consumer appears. Drift is a genuine
+  risk, but premature extraction across two repos that are both moving is worse.
+
+  Order I'd suggest
+
+  1. Apply the UUID fix to Tessell's sutil.clj and move it to 0.7 — small, and it unblocks everything else. Decide the dbs/ migration question first.
+  2. Copy the reader slice into Tessell; point db_query at uaexp's sto   DB_SCHEMA.md so the orchestrator knows what it's looking at
+  3. Build uaexp's system DB, designed as queryable catalog rather than API — store inventory, provenance, declared-vs-actual dependencies, and eventually CMP
+     correspondences.
+
+  Want me to start on (1)? It's contained, I've just done the identical change, and it's the gate for the rest. I'd want your call on the 421 MB first.
+
+
+❯ You can start on (1) but maybe before that we should restart Claude. A mode line on Claude says "Update installed . Restart to update". Worthwhile now or wait?
+
+
+● Restart now — this is about as clean a boundary as you'll get.
+
+  You've committed and pushed everything: main is in sync with origin/main, and the Datahike 0.7 bump plus the nameUUIDFromBytes fix are both in 2b1b8e7. The only
+  working-tree changes are your own edits to doc/log-uaexp.org (plus emacs lock files and logs/). Nothing of mine is uncommitted, so nothing is at risk.
+
+  The commit titles carry the reasoning too — ":Node/ref and DB versioning (big change)", ":NodeSet/content (root element to a nodeset)" — so the narrative survives in
+  the log rather than only in this session.
+
+  And the next task argues for restarting rather than against it: step (1) is in a different repo, and it's a change I've already made once. Tessell's sutil.clj:97-98 is
+  the same two lines, the fix is the same derived UUID, and I can re-read both from the code. It leans on this session's context less than almost anything else we've
+  done.
+
+  Two notes for after you're back:
+
+  - claude --continue restores this conversation if you want the history; a fresh session is fine for the Tessell work either way.
+  - Your REPL on 44407 is a separate process and survives a Claude restart untouched.
+
+  The one thing still to decide before I start on Tessell is the 421 MB question — dbs/projects (15 run DBs) and dbs/system are 0.6 format, and moving to 0.7 means
+  rebuilding them. Unlike uaexp's nodesets they aren't regenerable from source. Worth thinking about while you restart: whether those 15 runs are a record you need live,
+  or whether the .md/.pdf reports in data/projects/ are the artifact you actually keep.
+** [2026-08-30 Sun] Picking up for work on Tessell
+*** Switch to Tessell
+**** Me
+I'm not worried about the 421 MB of projects.
+The ones I want have reports in the repository `data/projects/`. I probably won't h- Your point about the system DB is
+  the sharpest part: db_query against uaexp's catalog beats a list_namespaces tool, because the catalog becomes data the orchestrator ca
+** [2026-08-31 Mon] Back here to add system DB
+ * We moved the DH schema definition for Part5 into ./resources/part5/part5-schema+.edn (now renamed ~/resources/schema/part5-schema+.edn
+**** Claude
+ putil.clj now reads "schema/part5-schema+.edn", and I recorded the move in git (the index had my earlier resources/part5 rename, with the worktree file deleted; git
+  add -A resolved it to a single rename from data/part5/). Verified: loads from resources/schema/, 211 entries.
+
+  A breakage your util.clj rewrite introduced
+
+  Slimming util.clj dropped nspaces and elide — but putil.clj's defparse macro emits calls to ua.util/nspaces and ua.util/elide in every expansion. The running REPL hid
+  this: require :reload re-evaluates a file but doesn't unmap vars that have disappeared, so both were still resolvable as stale leftovers. A fresh JVM would have failed
+  to compile ua.build-part5 — every defparse in it.
+
+  I moved both into putil.clj, its only consumer, and changed the macro template to unqualified nspaces/elide so the syntax-quote resolves them to ua.putil for every
+  namespace that uses defparse. Then I verified it properly: remove-ns on all eight ua.* namespaces, cleared *loaded-libs*, reloaded in dependency order — clean, and
+  (resolve 'ua.util/nspaces) is now genuinely nil.
+
+  Your hazard fixes — checked
+
+  Fixed: user.clj refresh dirs and the tap; the Timbre→Telemere bridge (matches Tessell's now); the :agents handler and agents-log.txt gone; the scheduling_tbd/stbd_app
+  regex now ua. One vestige: custom-console-output-fn still opens with (when-not (= (:kind signal) :agents) ...), which can no longer be false. Harmless, one line.
+
+  Two are still open, both from my earlier testing:
+  - data/profiles/amb/amb-nodeset.edn is still stale (predates <NamespaceUris> capture).
+  - schema+ generation still writes unreadable idents (:P5StdRefType/1:Contains), so make-profile-db! still works only without :schema+-file. That one needs your
+    collision-policy decision.
+
+  Two I can now close myself — I'd flagged them as "unexplained":
+  - data/part5/x5.edn (9.3M) is a debug dump of parsed XML; build_part5_test.clj:102 has the commented line that produced it. Regenerable, deletable.
+  - OPC_UA_Core_Model_2710599569.xml is Part 5 v1.05.03; the other is v1.05.04. Not a duplicate — and now that stores are versioned, it's the material for demonstrating
+    two versions of the same namespace side by side.
+
+  data/profiles/ — I'd not delete the directory
+  The split that matters is source vs. derived. Every .edn in there is a pure function of an XML sitting beside it; the XMLs are the only irreplaceable things.
+
+  ┌──────────────────────────────────────────┬─────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                                          │  keep?  │                                                    why                                                     │
+  ├──────────────────────────────────────────┼─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ cnc04/CNC04.NodeSet2.xml (8K)            │ yes     │ your own invention. Not downloadable anywhere. It's the operator-extension that makes the whole            │
+  │                                          │         │ composition argument.                                                                                      │
+  ├──────────────────────────────────────────┼─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ machineTool/…NodeSet2.xml (400K)         │ yes     │ OPC 40501-1. Public, but it's the demo asset.                                                              │
+  ├──────────────────────────────────────────┼─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ amb/AssetManagementBasics.xml (76K)      │ yes     │ public, small.                                                                                             │
+  ├──────────────────────────────────────────┼─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ the three *-nodeset.edn +                │ no      │ derived; one stale, one unreadable.                                                                        │
+  │ amb-schema+.edn (660K)                   │         │                                                                                                            │
+  ├──────────────────────────────────────────┼─────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ misc/ (3.0M)                             │ your    │ nothing references any of it. 2.9M is CompressedAirSystemProfile.xml; the five                             │
+  │                                          │ call    │ peter.nist.gov.ambusageexample variants are your own experiments (~20K).                                   │
+  └──────────────────────────────────────────┴─────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  One thing worth weighing on data/profiles/backups. The Sched6 analogy doesn't fully carry: a Sched6 project DB holds interview data that exists nowhere else, so a
+  backup is the only copy. A uaexp store is recomputable from an XML already in the repo — so a nodeset-EDN backup buys parse time and a record of which parse built a
+  store, not recoverability. Worth having for the second reason, but it's a different argument, and it suggests the backup should carry provenance (source file,
+  checksum, uaexp SHA) rather than be a bare EDN. Once the system DB exists, the thing that genuinely can't be recomputed is the catalog itself.
+
+  The system DB — what we're currently dropping
+
+  You asked what I'd put in it. Everything below is computed today and then discarded:
+
+  1. Declared dependencies — never even parsed. defparse :p5/Model reads only <Model>'s attributes. <RequiredModel> is ignored entirely, and MachineTool declares six of
+     them (UA, DI, Machinery, IA, ISA95-JOBCONTROL_V2, Machinery/Jobs), each with a version and publication date. This is half of the "declared-vs-actual dependencies"
+     idea from your log — and right now it's the missing half.
+  2. Actual dependencies. make-store! computes foreign-addresses, logs a count, and throws the set away. Comparing it against (1) is the interesting query: MachineTool
+     declares DI but makes no reference into it; it references Machinery without the file being present.
+  3. Provenance. Nothing records which XML produced a store, its checksum, when, or at which uaexp SHA. Right now a store cannot tell you what it was built from — and
+     after a parser change, that's exactly the question.
+  4. Parser coverage. pu/nyi accumulates every XML tag with no defparse 1 new message (ctrl+End) ↓ eads. Per-nodeset, that's "what did this file contain that we couldn't
+     represent" — a completeness claim you'd want before demonstrating anything to a standards body.
+  5. Ignored content. pro/ignored-nodes collects <Extensions> (the vendor tool that authored the profile — provenance in its own right), and load-nodeset! then filters
+     them out. Collected, then dropped twice over.
+  6. Load anomalies. AMB logged "Loading 95 lookups / Loaded 92". That three-node discrepancy is a data-quality signal that scrolls past and is gone.
+  7. Schema findings. merge-warn's collision list and make-schema+'s expected-namespaces mismatches are both log! :warn and dropped.
+
+  Your framing — one entry per profile created by make-profile-db! — is the right shape for all seven, since each is known at exactly that moment.
+
+  The REPL needs restarting — my fault
+
+  Early in this session I used :reload-all to test compilation, which reloaded Telemere and Encore and produced two distinct taoensso.encore.signals.SpecFilter classes
+  in different classloaders. config-log! now dies with a ClassCastException, so mount/start fails and no stores are registered. The code is fine — the clean-load
+  simulation passed before I broke the logging state — but this REPL can't run the system any more. Restart it and tell me the port; I'd like to re-run the suite and
+  rebuild AMB properly before we start on the system DB.
+
+  Still outstanding for you: whether to delete the AMB store I created at /opt/uaexp/http:/opcfoundation.org/UA/AMB/1.01.1.
+**** Me
+Regarding this:
+"  Two are still open, both from my earlier testing:
+  - data/profiles/amb/amb-nodeset.edn is still stale (predates <NamespaceUris> capture).
+  - schema+ generation still writes unreadable idents (:P5StdRefType/1:Contains), so make-profile-db! still works only without :schema+-file. That one needs your
+    collision-policy decision."
+I deleted amb-nodeset.edn.
+Regarding the undreadable idents, how does the `1:Contains` come about?
+
+Regarding "  Two I can now close myself — I'd flagged them as "unexplained":" Go ahead and close them.
+
+Regarding your comment "Worth having for the second reason, but it's a different argument, and it suggests the backup should carry provenance (source file,
+  checksum, uaexp SHA) rather than be a bare EDN. Once the system DB exists, the thing that genuinely can't be recomputed is the catalog itself."
+
+You are certainly correct about not deleting not deleting the directory, but maybe these other things you mention should go in the system DB.
+We'd just keep XML around for rebuilding. Your thoughts?
+
+I agree that the seven things you enumerated should go in the system DB.
+Please create `system_db.clj` and use the Sched6 design. Include functions to backup and restore the DB such as in Sched6.
+Put the DH schema in `resources/schema`.
+If you more questions for me before you start, go ahead or ask away.
+**** Claude
+
+  How 1:Contains comes about
+
+  A BrowseName in OPC UA is a QualifiedName (Part 3 §8.3) — a namespace index plus a name — and its text form is <index>:<name>, with index 0 written bare. So in the
+  XML:
+
+  <UAReferenceType NodeId="i=31"        BrowseName="References"/>   <!-- base UA, index 0 omitted -->
+  <UAReferenceType NodeId="ns=1;i=4002" BrowseName="1:Contains"/>   <!-- AMB, index 1 = AMB itself -->
+
+  defparse :p5/BrowseName (build_part5.clj:150) takes the attribute content verbatim into :Node/browse-name, and make-p5-std-ref-type-schema then does (keyword
+  "P5StdRefType" browse-name). keyword will build anything you hand it; the reader is what rejects :P5StdRefType/1:Contains.
+
+  So it's the same defect as the NodeId one — a file-local namespace index baked into something persistent — in the one place nsuri doesn't reach. nsuri canonicalizes
+  :IMPL/ref and QualifiedName values; :Node/browse-name is a plain string it never inspects.
+
+  The machinery to fix it already exists and is right beside it: defparse :UATypes/QualifiedName in profiles.clj already splits index from name and parks it on
+  :IMPL/namespace-index for nsuri to resolve into :P3QualifiedName/namespace-uri. BrowseName is a QualifiedName and simply isn't routed through it. Do that, and the
+  ident becomes :P5StdRefType/Contains with the defining namespace known — which is also what makes the collision question answerable instead of guesswork. Worth doing
+  before the system DB, or after; your call.
+
+  Two items closed
+
+  x5.edn deleted (9.3M, git-tracked so recoverable, and build_part5_test.clj:102 records how to regenerate it). The second Part 5 XML is v1.05.03 against the other's
+  v1.05.04 — recorded in CLAUDE.md as versioning material rather than a duplicate. I also trimmed three hazard entries your util.clj/user.clj rewrite fixed, leaving one
+  vestige noted (the :agents guard in custom-console-output-fn can no longer be false).
+
+  Backups vs. the system DB — I think you're right, and it simplifies things
+
+  Three layers, each with one job:
+
+  - XML — the input. Irreplaceable, kept for rebuilding.
+  - store — derived, recomputable, disposable.
+  - system DB — the record of the derivation, and the only thing that isn't recomputable.
+
+
+  Provenance written into a backup file's header is provenance that can drift from the artifact it describes and can't be queried. Written into the system DB it lands at
+  exactly the moment the store is built, and "which stores are stale against their XML?" becomes a query rather than an inspection. So data/profiles/backups isn't
+  needed for nodesets at all — the nodeset EDN is a parse cache, not a backup, and should be regenerable on demand.
+
+  What does need backing up is the system DB itself, which is exactly the Sched6 backup-system-db / recreate-system-db! pair.
+
+  Three questions before I write it
+
+  1. How is a catalog entry keyed? Datahike needs one :db.unique/identity attribute, but a store is identified by a pair. I'd use :store/id, a derived string
+  "<uri>|<version>", with :store/prefix and :store/version also stored as plain queryable attributes. Alternative is a :db.type/tuple, which is tidier in theory but I'd
+  rather not depend on Datahike 0.7 tuple behaviour. Happy with the derived string?
+
+  2. Does a rebuild replace the entry, or append a build record? One entry per store, overwritten each build, is simplest and matches Sched6's one-entry-per-project. But
+  "this store was built by an older parser" is exactly the kind of thing you'd want to catch, which argues for :store/builds as a cardinality-many set of build entities
+  (timestamp, uaexp SHA, source checksum, the nyi tags and anomalies for that build). I lean to the history version — the seven dropped items are all per-build facts,
+  not per-store facts — at the cost of a slightly deeper schema. Which do you want?
+
+  3. malli? Sched6 validates DB objects with m/validate before transacting. malli isn't a dependency here. Add it for the same discipline, or keep the Datahike schema as
+  the only check for now?
+
+  One thing I'll handle without asking: dbu/discover-stores! scans $UAEXP_DB for any directory containing .ksv files, so it would find $UAEXP_DB/system and register the
+  system DB as if it were a nodeset store (it'd land as {:prefix "system//" :version "system"} with a warning). I'll exclude it.
+**** Me
+ Do the "defparse :UATypes/QualifiedName" thing as you suggest.
+ Your three questions:
+
+Q1: This one is important not just for uaexp, but for Tessell's orchestrator which can query the uaexp system DB to get an idea what nodesets are available, and then follow up
+that query with a query to a nodeset DB or `resolve-node`. Thus it would need a way to get from survey query of the system DB to a DB identifier that can be used to connect
+to the DB. At least that's the way I'm thinking about it. Do you concur? If this is the case, then I think "<uri>|<version>", what we were calling the canonical ID, would
+work. But you might study that question a bit.
+
+Q2: Appending a build record seems enticing. However, if I understand correctly, then Tessell's orchestrator would need something more than "<uri>|<version>" to connect to the
+correct nodeset DB. Is that the way you see it? Something like "<uri>|<version>|<SHA>". Your thoughts on that?
+
+Q3: Yes on Malli schema.

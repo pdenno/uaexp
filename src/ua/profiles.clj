@@ -17,7 +17,7 @@
 
 (def ignored-nodes "I'm not sure whether these are worth storing in the DB." (atom []))
 
-(declare make-schema+)
+(declare expected-namespaces make-schema+)
 
 (defn ^:admin make-store!
   "Create the store for one nodeset EDN file. There is no dependency order to get right and no
@@ -34,30 +34,38 @@
     (:db-id cfg)))
 
 (defn ^:admin  make-profile-db!
-  "Create a Part5-based DB for the argument node set. Arguments:
-     :xml-file  - the XML file defining the nodeset
-     :nodeset-edn-file - a file of the data of the nodeset, loaded into the DB.
-     :schema+-file - a file of schema in schema+ format learned from the nodeset.
-     :schema-key - a keyword used to register the db, and for use with connect-atm.
-     :create-db? - whether to create the db or just stop at creating the schema+ file. (Defaults to true.)
-     :make-schema+-file? - whether to make the schema-file with the name or use the file at the name."
+  "Create the store for one nodeset, running the generation steps that precede it. Arguments:
+     :nodeset-edn-file - the nodeset EDN. Required: written here when :xml-file is given,
+                         otherwise it has to exist already.
+     :xml-file         - the XML defining the nodeset. When given, the nodeset EDN is generated
+                         from it, overwriting whatever was at :nodeset-edn-file.
+     :schema+-file     - when given, schema+ is learned from the nodeset, written here, and used
+                         for the store. Without it the store gets Part 5's schema alone, which is
+                         enough for a nodeset that introduces no attributes of its own.
+     :schema-key       - names the entry in expected-namespaces that make-schema+ checks what it
+                         learned against. Required with :schema+-file, unused without it.
+
+   The store is named by the namespace and version in the nodeset's own <Models>, so there is
+   nothing to name here -- :schema-key used to serve that purpose and no longer does. Returns
+   the store's {:prefix .. :version ..}."
   [{:keys [schema-key xml-file nodeset-edn-file schema+-file]}]
-  (assert (keyword? schema-key))
-  ;; Without an :xml-file there is nothing to generate from, so the EDN has to be there already.
-  (when-not xml-file
-    (assert nodeset-edn-file "Provide :xml-file to generate the nodeset EDN, or :nodeset-edn-file naming an existing one.")
-    (assert (-> nodeset-edn-file io/file .exists) (str "No such nodeset EDN file: " nodeset-edn-file)))
+  (assert nodeset-edn-file "Provide :nodeset-edn-file: generated from :xml-file, or an existing one.")
+  (when schema+-file
+    (assert (contains? expected-namespaces schema-key)
+            (str ":schema-key must be one of " (-> expected-namespaces keys sort vec) " to check learned schema against.")))
   (reset! ignored-nodes [])
-  (when xml-file
-    (write-nodeset-edn! xml-file nodeset-edn-file))
-  ;; ToDo: :make-schema+-file? (see docstring) is not implemented, so a :schema+-file is always
-  ;;       regenerated here and then read back. Deciding generate-vs-use is the open question.
+  ;; Without an :xml-file there is nothing to generate from, so the EDN has to be there already.
+  (if xml-file
+    (write-nodeset-edn! xml-file nodeset-edn-file)
+    (assert (-> nodeset-edn-file io/file .exists) (str "No such nodeset EDN file: " nodeset-edn-file)))
+  ;; ToDo: a :schema+-file is always regenerated here and then read back; there is no way to say
+  ;;       "use the file that is there". Deciding generate-vs-use is the open question.
   (when schema+-file
     (make-schema+ schema-key nodeset-edn-file schema+-file))
-  (pu/create-ua-db!
-   :schema+ (if schema+-file (-> schema+-file slurp edn/read-string) {})
-   :nodeset (-> nodeset-edn-file slurp edn/read-string)   ; create-ua-db! wants the nodeset, not its filename.
-   :db-id schema-key))
+  ;; Delegating rather than calling create-ua-db! again keeps one path into a store, so the
+  ;; foreign-key report happens here too.
+  (make-store! nodeset-edn-file
+               :schema+ (when schema+-file (-> schema+-file slurp edn/read-string))))
 
 ;;; --------- These were encountered in nodesets other than Part 5. (Just AMB so far.)
 (defparse :p5/NamespaceUris

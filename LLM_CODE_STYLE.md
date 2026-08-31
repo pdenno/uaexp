@@ -41,8 +41,7 @@
 - reducing tokens makes me happy
 
 ### Library Preferences
-- Use `src/sched6/json.clj` for JSON read and write
-- Use `malli` for schema confomance
+- Use `jsonista.core` for JSON read and write; it is the only JSON library here
 - Prefer `clojure.string` functions over Java interop for string operations
   - Use `str/ends-with?` instead of `.endsWith`
   - Use `str/starts-with?` instead of `.startsWith`
@@ -65,13 +64,14 @@
 ### Testing Best Practices
 - Always reload namespaces before running tests with `:reload` flag: `(require '[namespace] :reload)`
 - Test both normal execution paths and error conditions
-- Use `(clojure-test/run-tests <namespace>)` for focused testing; It is much faster than `clojure -X:test`.
+- Run tests in the running REPL: `(clojure.test/run-tests 'ua.db-util-test)`. Don't start a JVM
+  for tests; the `:test` alias in `deps.edn` is broken (kaocha, and an `src/server` path that
+  doesn't exist).
 
 ### Using Shell Commands
 - Prefer the idiomatic `clojure.java.shell/sh` for executing shell commands
 - Always handle potential errors from shell command execution
 - Use explicit working directory for relative paths: `(shell/sh "cmd" :dir "/path")`
-- For testing builds, run `bin/kaocha` instead of running tests piecemeal
 - When capturing shell output, remember it may be truncated for very large outputs
 - Consider using shell commands for tasks that have mature CLI tools like diffing or git operations
 

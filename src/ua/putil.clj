@@ -2,6 +2,7 @@
   "Utililties for working with profiles"
   (:require
    [clojure.edn                 :as edn]
+   [clojure.java.io             :as io]
    [clojure.pprint              :refer [cl-format pprint]]
    [clojure.set                 :as set]
    [datahike.api                :as d]
@@ -34,6 +35,24 @@
 
 (def parse-depth (atom 0))
 
+;;; These two were in ua.util until it was slimmed to logging configuration. They live here
+;;; because defparse's tracing is their only caller, and being in the macro's own namespace is
+;;; what lets the syntax-quote below resolve them for every namespace that uses defparse.
+(defn nspaces
+  "Return a string of n spaces."
+  [n]
+  (reduce (fn [s _] (str s " ")) "" (range n)))
+
+;;; ToDo: Consider cl-format ~S.
+(defn elide
+  "Return a string no longer than n where the last 3 is ellipsis '...' if the string is > n long."
+  [obj n]
+  (let [s (str obj)
+        cnt (count s)]
+    (cond (> n cnt)   s
+          (< n 3)     ""
+          :else (str (subs s 0 (- n 3)) "..."))))
+
 ;;; ToDo: I think it is pretty odd that we call process-attrs-map here, especially so because
 ;;;       sometimes specific attrs are mapped again, differently.
 (defmacro defparse [tag & others]
@@ -46,10 +65,10 @@
      ;; Once *skip-doc-processing?* is true, it stays so through the dynamic scope of the where it was set.
      (swap! parse-depth inc)
      (when @debugging?
-       (println (cl-format nil "~A==> ~A" (ua.util/nspaces (* 3 @parse-depth)) ~tag)))
+       (println (cl-format nil "~A==> ~A" (nspaces (* 3 @parse-depth)) ~tag)))
      (let [result# (do ~@body)]
        (when @debugging?
-         (println (cl-format nil "~A<-- ~A : ~A" (ua.util/nspaces (* 3 @parse-depth)) ~tag (ua.util/elide result# 130))))
+         (println (cl-format nil "~A<-- ~A : ~A" (nspaces (* 3 @parse-depth)) ~tag (elide result# 130))))
        (swap! parse-depth dec)
        result#))))
 
@@ -167,11 +186,16 @@
         s (with-out-str (pprint profile))]
     (spit out-file s)))
 
+(def part5-schema+
+  "Schema for Part 5, in schema+ format. Read from the classpath rather than a relative path so
+   that it is found wherever the JVM was started, and read once rather than on every merge-warn."
+  (-> "schema/part5-schema+.edn" io/resource slurp edn/read-string))
+
 (defn merge-warn
-  "Merge the argument schema, which could be {} it with part5-schema+, warning where there are collisions. Return a "
+  "Merge the argument schema+, which may be {}, with part5-schema+, warning where there are
+   collisions. Returns the merged schema in datahike form."
   [schema+]
-  (let [part5-schema+ (-> "data/part5/part5-schema+.edn" slurp edn/read-string)
-        collisions (set/intersection (-> schema+ keys set) (-> part5-schema+ keys set))]
+  (let [collisions (set/intersection (-> schema+ keys set) (-> part5-schema+ keys set))]
     (when (not-empty collisions)
       (log! :warn (str "The following are defined in Part5; their redefinition in the nodeset is being ignored: " collisions)))
     (-> schema+ (merge part5-schema+) datahike-schema)))

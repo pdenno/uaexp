@@ -68,6 +68,10 @@
    :Node/browse-name
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 
+   :Node/browse-name-uri
+   #:db{:cardinality :db.cardinality/one, :valueType :db.type/string
+        :doc "The namespace of the node's BrowseName, when it is not the store's own. A BrowseName is a QualifiedName; its namespace index is file-local, so ua.nsuri resolves it to this URI at load. Absent means the store's own namespace."}
+
    :Node/category
    #:db{:cardinality :db.cardinality/one, :valueType :db.type/string}
 

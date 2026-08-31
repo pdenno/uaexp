@@ -72,7 +72,8 @@
     (cond-> db-template
       true            (assoc :base-dir base-dir)     ; This is not a datahike thing.
       (not in-mem?)   (assoc :store {:backend :file :path db-dir :id store-id})
-      in-mem?         (assoc :store {:backend :mem :id store-id}))))
+      ;; :mem was renamed :memory in datahike 0.7 / konserve 0.7; :mem now throws.
+      in-mem?         (assoc :store {:backend :memory :id store-id}))))
 
 (defn connect-atm
   "Return a connection atom for a store, named either by {:prefix .. :version ..} or by a bare

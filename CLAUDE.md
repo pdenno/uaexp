@@ -1,102 +1,140 @@
 # CLAUDE.md - AI Coding Copilot Instructions
 
-Essential operating instructions for any LLM agent (Claude, Cursor, etc.) working on this Clojure project.
-The project implements an MCP server, sched6, and sched6 is running when you start. Sched6 provides approximately 16 MCP tools and a few MCP resources.
+Operating instructions for any LLM agent working on **uaexp**. Style rules live in
+`LLM_CODE_STYLE.md`; read both.
 
-## Code layout — not all code is in `src`
-Production code lives in `src/`, but there is also live project code under `env/` — notably `env/dev/develop/` (REPL/system) and `env/dev/study/` (reports, study DB, e.g. `study/project_reports.clj`, `study/study_db.clj`). When doing project-wide sweeps (renames, API removals, schema changes) **grep and edit `env/` too, not just `src/`** — misses there compile fine but silently produce wrong results.
+## What uaexp is
 
-# Clojure REPL Evaluation
+uaexp reads OPC UA nodeset XML (Part 5 core, companion specifications, and an operator's own
+extensions) and loads it into Datahike stores that can be queried with Datalog and walked by
+node address. It is exploratory research code from the NIST project *Human/AI Teaming for
+Manufacturing Digital Twins*. There is no server and no API despite `ua.core/server` — that
+defstate returns `:started` and does nothing else.
 
-The command `clj-nrepl-eval` is installed on your path for evaluating Clojure code via nREPL.
+The narrative of how it got here is `doc/log-uaexp.org`, newest at the bottom. Read the last
+couple of entries before starting anything substantial; decisions are recorded there and
+nowhere else.
 
-**Discover nREPL servers:**
+## The store model — the one concept to get right
 
-`clj-nrepl-eval --discover-ports`
+**One store holds one version of one namespace.** Not one DB per profile, and not one merged
+DB. This is the design that everything else follows from, and it is recent (2026-08-27/28), so
+older code, docs and log entries describe a `:part5` DB that no longer exists.
 
-**Evaluate code:**
+A NodeId's `ns=<index>` is an index into the *file's own* `<NamespaceUris>` table, so the same
+literal string names different nodes in different files. `ns=1;i=1002` is `ObligationType` in
+OPC 40501-1 and `CNC04MachineOperationMonitoringType` in CNC04's extension. Anything that keys
+on the literal NodeId silently merges the two. So:
 
-`clj-nrepl-eval -p <port> "<clojure-code>"`
+- Addresses between stores are OPC UA **ExpandedNodeIds** (Part 6, Annex A):
+  `nsu=http://opcfoundation.org/UA/MachineTool/;i=26`.
+- Inside a store the namespace is implied, so `:Node/id` is the bare identifier: `i=26`.
+- A reference leaving the nodeset's own namespace is stored as a **foreign key**,
+  `{:Node/ref "nsu=...;i=80"}`, never as an entity id — an entity id means nothing in another
+  store. `dbu/resolve-node` stops there; `dbu/expand-n` crosses on purpose.
+- Because references out are foreign keys, **nodesets load in any order and alone**. Nothing
+  has to be present first, and a target need not exist at all.
 
-With timeout (milliseconds)
+`ua.nsuri` owns all of this. Do not parse a NodeId anywhere else.
 
-`clj-nrepl-eval -p <port> --timeout 5000 "<clojure-code>"`
+## Databases
 
-The REPL session persists between evaluations - namespaces and state are maintained.
-Always use `:reload` when requiring namespaces to pick up changes.
-Evaluate the following with `xlj-nrepl-eval`: `(require <some namespace> :reload)`.
+Stores live under `$UAEXP_DB` (`/opt/uaexp`), laid out by namespace URI and version, so the
+path says what the store holds (the filesystem collapses the scheme's `//`):
 
-## Starting up
-- The system, including its MCP loop, is probably running when you join.
-  To check that things are as they should be:
-  1. Review the file `env/dev/develop/repl.clj`, variable `alias map`; the user will use the aliases defined there in communication with you.
-  2. `clj-nrepl-eval -p <port> (sutil/connect-atm :system)`; it should return a DB connection object.
-  3. `clj-nrepl-eval -p <port> @mutil/mcp-components-atm`; it should return {:tools [...], :prompts [...], :resource [...]}.
-
-## Coding Rules
-
-### Naming Conventions
-- **Boolean variables**: End with `?` (e.g. `inv/active?`, `mock?`)
-- **Mutating functions**: End with `!` (e.g. `update-db!`, `reset-state!`)
-- **Diagnostic definitions**: Tag with `^:diag` metadata for REPL-only usage
-- **Namespace aliases**: These should be short and `itools` not `interviewer-tools`. The same alias should be used in all files.
-- **Some specific variables**:
-	  `pid` should be the only variable name used to refer to a project ID. Its value is a keyword.
-	  There is no conversation ID (CID). Messages are stored flat on the project (`:project/messages`); the process/data/resources/optimality distinction survives only as DS namespaces (the `interviewing/domain` subdirs), and a message is classified by its `:message/pursuing-ASCR` namespace. Semantic (embedding) search, not conversation buckets, is how we find what a discussion is about.
-
-## Logging
-- The system logs action to `logs/sched6-log.txt`
-
-### When demonstrating code to the user:
-- **Avoid writing files of 'hacks' for demonstration** When things don't work stop and ask for instructions.
-
-### Data Management
-- **Prefer atoms** to dynamic variable for persistent state. (One exception so far: `ts/*mcp-exchange*`).
-  ```clojure
-  ;;; Good
-  (def mock? (atom false))
-
-  ;;; Avoid
-  (def ^:dynamic *mock-enabled* false)
-  ```
-- **Prefer the Project DB to atoms** Avoid creating atoms where project state is concerned. Use the functions in `src/sched6/project_db.clj`.
-   Write a new utility for `project_db.clj` if necessary.
-- **Isolate use of Datahike to a few files** There is pretty much nothing persistent that doesn't belong in code, the system DB, or a project DB.
-  Therefore, avoid writing Datahike queries and pulls in all files except `src/sched6/system_db.clj`, `src/sched6/project_db.clj`, and `src/sched6/sutil.clj`.
-- Whenever you need state information, look into those files and see if something there is appropriate, if not, add a function to whichever of the three above is appropriate.
-
-### Data Structures
-- Use maps, vectors, sets, and primitive data types to store data.
-- **Do NOT use lists** (sequences) for data storage. We stipulate this because recursive navigation of structures uses just `map?` and `vector?`.
-- Write Malli schema for important objects. See `schema.clj` for examples.
-- Use Malli schema and transformation to and from MCP tool arguments and implementations.
-
-### Use Promesa Promises where Concurrency is Needed
-See https://funcool.github.io/promesa/latest/promesa.core.html
-
-### Surgical Changes Only
-- Make **minimal, targeted edits** - don't reformat entire functions
-- **Preserve existing spacing and indentation**
-- **Respect whitespace patterns** in conditional forms:
-  ```clojure
-  ;; Preserve this spacing pattern
-  (cond
-	  (test-1)                     1
-	  (much-longer-test)           2)
-
-  ;; Don't collapse to single spaces
-  ```
-### Code Review Standards
-- Maintain existing code style and patterns
-- Don't introduce unnecessary formatting changes
-- Don't write pointless comments:
-
-```clojure
-;;; Read config file. (example pointless comment)
-(read-config-file)
 ```
-### Ask Questions
-- Any time you need clarification, stop and ask questions.
+/opt/uaexp/http:/opcfoundation.org/UA/1.05.04              68M   Part 5 core, 5820 nodes
+/opt/uaexp/http:/opcfoundation.org/UA/MachineTool/1.02.0   4.7M  OPC 40501-1
+/opt/uaexp/http:/example-machineworks.com/UA/CNC04/0.1.0   248K  a shop's extension
+```
 
----
-*Keep this file under 120 lines for quick loading. Last updated: $(date)*
+`dbu/discover-stores!` registers them at startup. It confirms each against the store's own root
+(`:NodeSet/uri`, `:NodeSet/version`) rather than trusting the path, so a misfiled store is
+reported instead of registered under the wrong name.
+
+**Everything here is regenerable** from the XML in `data/`, so rebuilding a store is cheap and
+losing one is not a disaster. That is not true of Tessell's DBs — do not carry the assumption over.
+
+**Isolate Datahike.** Queries and pulls belong in `ua.db-util` and `ua.putil`. If you need
+state, add a function there rather than writing `d/q` in a new file.
+
+## Code layout
+
+```
+src/ua/nsuri.clj          addresses, namespace tables, canonicalization, version compare
+src/ua/db_util.clj        store registry, config, resolve-node / deeper / walk-final / expand-n
+src/ua/putil.clj          XML->EDN rewriting (defparse multimethod), schema learning, loading
+src/ua/build_part5.clj    the defparse methods for Part 5's vocabulary; init-part5 defstate
+src/ua/profiles.clj       make-store!, schema+ generation for non-P5 nodesets
+src/ua/p5_cardinality.clj hand-written cardinality table for Part 5 ReferenceTypes
+src/ua/xml_util.clj       clojure.data.xml wrapper
+src/ua/util.cljc          logging config (Telemere); util-state defstate
+resources/part5/part5-schema+.edn   the Part 5 schema, read at load by ua.putil
+env/dev/                  user.clj (start/stop), develop/repl.clj (alias-map), develop/dutil.clj
+test/ua/                  clojure.test; db_util_test.clj is the real one
+```
+
+`defparse` forms are methods of `pu/rewrite-xml`, which lives in `ua.putil`. Requiring
+`ua.build-part5` for its side effects is deliberate, not an unused require.
+
+## REPL workflow
+
+**Do not start a Clojure process without asking first.** A REPL is normally already running;
+use it. `clj-nrepl-eval --discover-ports`, then `clj-nrepl-eval -p <port> "<code>"`. Reload with
+`:reload` to pick up edits. A classpath change (a new dependency, a new `:paths` entry) is the
+one thing the running REPL cannot absorb — say so and let the user restart it.
+
+Namespace aliases come from `develop.repl/alias-map` (`dbu`, `pu`, `pro`, `bp5`, `nsuri`, `xu`,
+`util`). Use those names in code and in conversation, and add to the map when you add a file.
+
+Run tests in the REPL — `(require '[ua.db-util-test] :reload)` then
+`(clojure.test/run-tests 'ua.db-util-test)`. As of 2026-08-31 the suite is 4 tests / 9
+assertions / 0 failures. **The `:test` alias in `deps.edn` does not work**: it names kaocha and
+an `:extra-paths` entry `src/server` that does not exist. Don't invoke it.
+
+## Direction
+
+Decided 2026-08-29, not yet acted on:
+
+- uaexp stays the **producer** — XML parsing, canonicalization, store building. This half is
+  OPC-UA-shaped and would be written differently for another SDO's format.
+- Tessell (`~/Documents/git/Tessell`, formerly `oide`) **copies the reader slice** (~300 lines:
+  `nsuri`, the store-config part of `db_util`, `resolve-node`/`expand-n`) rather than depending
+  on uaexp, following the RADmapper precedent. Tessell then reads these stores with its own
+  `db_query` MCP tool.
+- **No MCP server for uaexp.** Version skew was the only justification and it is gone.
+- Next build: a uaexp **system DB** designed as a queryable catalog — store inventory,
+  provenance, declared-vs-actual dependencies — rather than an API, so an orchestrator can
+  explore it with `db_query` instead of being taught a tool vocabulary.
+
+The motivating use case is composition: an operator subtyping a standard type in their own
+namespace. A single-file index cannot represent that at all, which is the case for this code
+over `mine_nodeset.py`.
+
+## Known hazards — check before trusting
+
+- **schema+ generation writes unreadable idents.** `pro/make-p5-std-ref-type-schema` builds
+  `(keyword "P5StdRefType" browse-name)`, and a browse-name outside ns=0 carries its namespace
+  index — `"1:Contains"` — giving `:P5StdRefType/1:Contains`, which `keyword` will make and the
+  reader will not read. So any nodeset defining its own ReferenceTypes produces a schema+ file
+  that cannot be loaded back — this is what made the former `data/profiles/amb/amb-schema+.edn`
+  unreadable. Hence `pro/make-profile-db!` works only *without* `:schema+-file`. Fixing
+  it needs a decision, not just an escape: stripping the `N:` prefix is right by the file-local-index
+  rule, but then a profile's `Contains` and Part 5's collide in the merged schema.
+- `ua.util/custom-console-output-fn` still opens with `(when-not (= (:kind signal) :agents) ...)`.
+  The `:agents` handler is gone and nothing emits that kind, so the guard can never be false.
+- `data/part5/` holds **two** Part 5 core models, and they are not duplicates:
+  `OPC_UA_Core_Model_2515947497.xml` is v1.05.04 and `..._2710599569.xml` is v1.05.03. Since
+  stores are versioned, the older one is the material for holding two versions of the base
+  namespace at once. Only the 1.05.04 one is referenced by code today
+  (`bp5/init-part5` reads the derived `p5-nodeset.edn`, by relative path).
+
+## Working practice
+
+- **Surgical edits.** Preserve existing spacing and alignment; multiple spaces inside a line are
+  usually deliberate. Don't reformat a function you are changing one line of.
+- **No lists for data.** Maps, vectors, sets and primitives only — recursive walkers throughout
+  this code dispatch on `map?` and `vector?` alone, and a seq falls through both.
+- `^:diag` for REPL-only definitions, `^:admin` for developer/build-time ones. Both are used
+  here and the distinction is worth keeping.
+- **Ask questions** when the request is ambiguous rather than guessing.

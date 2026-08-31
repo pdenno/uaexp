@@ -3,7 +3,7 @@
    This file isn't used in cljs and is a problem for shadow-cljs without the
    :clj compiler directives."
   (:require
-   [clojure.pprint :refer [pprint]] ; for README.md, which uses it.
+   [clojure.pprint :refer [pprint]]
    [clojure.string]
    [clojure.spec.alpha :as s]
    [clojure.tools.namespace.repl :as tools-ns :refer [set-refresh-dirs]]
@@ -22,8 +22,8 @@
 (watch-deps/start! {:aliases [:dev :test]})
 
 (alter-var-root #'s/*explain-out* (constantly expound/printer))
-(add-tap (bound-fn* clojure.pprint/pprint))
-(set-refresh-dirs "src/server/scheduling_tbd" #_"test/scheduling_tbd")  ; Put here as many as you need. test messes with ns-setup!
+(add-tap (bound-fn* pprint))
+(set-refresh-dirs "src/ua" #_"test/ua")  ; Put here as many as you need. test messes with ns-setup!
 
 (defn ^:admin start
   "Start the web server"
