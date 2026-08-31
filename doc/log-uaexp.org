@@ -2179,3 +2179,210 @@ Q3: Yes on Malli schema.
 Take a look at how `~/Documents/git/Sched6/resources/sched6/resources/SCHED6_MCP_GUIDE.md` describes uses of `db_query`.
 Look also at what we currently have in `~Documents/git/Tessell/resources/tessell/resources/TESSELL_MCP_GUIDE.md`.
 Can you suggest a rewrite of the latter that includes helpful examples for Tessell's orchestrator's use uaexp's DBs?
+Any questions for me before you give it a try?
+**** Claude
+
+● Read both. Before I write, one finding changes the shape of the answer, and it raises three questions.
+
+  The finding: Tessell can't reach uaexp's DBs today
+
+  db_query's malli schema is closed:
+
+  [:db_type {:description "either \"project\" or \"system\""}
+   [:and :keyword [:enum :project :system]]]
+
+  and execution resolves id to :system or (sdb/get-current-project) before (connect-atm id). There's no third path. Nor has the reader slice been copied — grepping
+  Tessell's src/ and env/ for nsuri/nodeset/uaexp finds only two prose mentions (a DS domain file and a dev file), no code.
+
+  So examples I write today would describe capability that doesn't exist. That matters more than usual here, because this guide is read by a live orchestrator:
+  documenting a call it can't make produces real failed tool calls, not just stale prose.
+
+  1. How should the orchestrator address a nodeset store?
+
+  db_type is currently an enum of two. Options:
+
+  - (a) Extend it to :project | :system | :uaexp | :nodeset, and add an optional store_id used only when db_type is :nodeset. :uaexp reaches the catalog.
+    Straightforward, keeps one tool, and the survey→connect flow reads naturally:
+  db_query {"db_type": "uaexp",   "query_string": "[:find [?id ...] :where [_ :store/id ?id]]"}
+  db_query {"db_type": "nodeset", "store_id": "http://opcfoundation.org/UA/MachineTool/|1.02.0",
+	    "query_string": "[:find ?bn :where [?e :Node/type :UAObjectType] [?e :Node/browse-name ?bn]]"}
+  - (b) Make db_type a free string naming any registered DB, with :project/:system as special cases. More flexible, loses the enum's validation.
+  - (c) A separate nodeset_query tool, leaving db_query alone.
+
+  I'd take (a) — it keeps the idiom the orchestrator already knows and makes the store id from the catalog directly usable as the next call's argument, which is the
+  whole point of the identifier being stable.
+
+  2. Does resolve_node become a tool?
+
+  _It has to be a tool rather than a query — it's a recursive walk with a depth bound and boundary handling, not expressible in Datalog._
+  And it's most of what makes a  nodeset store useful: the inheritance-chain example that gives the F50 argument its force needs resolve_node plus expand_n, not db_query.
+
+  So: do I document resolve_node (and expand_n) as tools to be built alongside the db_query extension? Without them the uaexp material is a lot of Datalog and no
+  walking, which undersells it considerably.
+
+  3. Where should the material live, and how do I mark it?
+
+  The existing guide is 205 lines and tight — every paragraph is load-bearing, and several are hard-won (the run-12 notification failure, the x != null trap). A uaexp
+  section done properly is 60–100 lines and would dilute it.
+
+  Tessell already serves RADMAPPER_GUIDE.md as a separate resource and generates DB_SCHEMA.md. So the house pattern supports a third: NODESETS_GUIDE.md, with
+  TESSELL_MCP_GUIDE.md gaining a short §on when to consult it plus tool-table rows. Alternative is one bigger file.
+
+  And relatedly — should I write it as installed documentation or as a proposal? If the tools don't exist yet, an installed guide describing them will cause failed
+  calls. I'd write it as a file in Tessell's repo but not wire it into resources.clj until the db_query extension and resolve_node land; the guide then doubles as the
+  spec for building them. Tell me if you'd rather I just write it and you'll sequence the wiring.
+
+  ---
+
+  One process note, since you set the rule: this is Tessell work in a uaexp session. The subject is uaexp's DBs so I'm happy to draft it here, but the file belongs in
+  Tessell's repo and the transcript will be filed under uaexp. Worth knowing when you go looking for the reasoning later.
+
+**** me
+
+I don't follow your point about not being able to reach the DBs an Malli schema being closed. Doesn't Tessell only need the UAEXP_DB environment variable?
+
+Regarding your points about Tessell not possessing the uaexp slice, please draft a file uaexp_util.clj for use in the tessell namespace.
+
+Your enumerated questions:
+Q1: agreed; go with (a)
+Q2: Yeah, I think you should document resolve_node too. Hope that's going to work for more that UA nodesets. `expand_n` would be an optional argument, I think.
+Q3: The material will live in `~Documents/git/Tessell/resources/tessell/resources/`. If you can write to that, go for it. Or maybe I don't understand your question.
+Oh, I see. No, I don't think `NODESET_GUIDE.md` is a good idea; it fragments the problem solving problem too much. Yes RADMAPPER_GUIDE does that too, but
+in the defense of that split, generation of RM code is something done after the problem is solved, I think. (If you disagree, argue your point.)
+Finally, as you hint at, there is also work to be done with the generated DB_SCHEMA.md; it needs to provide a tree for the UA Part5 schema.
+(Nothing to do yet except explain your point about not Tessell not being able to reach uaexp and resolve any questions you have about my response.)
+**** Claude
+  You're right about the data; I was sloppy about which layer
+
+  Reaching the bytes: yes — Tessell's JVM can open uaexp's stores directly, no service, no IPC. That part of your point stands and it's the whole basis of the Aug-29
+  "copy the reader slice" decision.
+
+  But the env var alone isn't sufficient, and this is worth knowing before writing uaexp_util.clj. uaexp derives the konserve store :id as
+  UUID/nameUUIDFromBytes("<prefix>|<version>"). Datahike 0.7 checks it:
+
+  correct derived UUID → opens
+  random UUID          → "Store identity mismatch: connecting to wrong database."
+  no :id at all        → "Store :id is required."
+
+  So Tessell must reproduce uaexp's derivation exactly, not just point at $UAEXP_DB. That's precisely why the recipe belongs in a shared file rather than being
+  hand-rolled at the call site — get the rule wrong and you get a mismatch error, not a wrong answer, but you also can't guess your way to it.
+
+  What I actually meant, and said badly: the db_query tool surface can't name a nodeset store. DbQuery is :closed true with [:enum :project :system], and validate-inputs
+  rejects anything else before execute-tool runs — so even with every uaexp store registered in Tessell's databases-atm, the orchestrator has no argument it can pass.
+  Execution then maps db_type to :system or (sdb/get-current-project); there's no third branch. That's the (a) change, and it's a change to the tool, not to Tessell's
+  reach. I should have said "the orchestrator can't address them", not "Tessell can't reach them."
+
+  Q2 — agreed on expand as an argument; one thing to settle
+
+  Your version is better than mine. depth (how far within a store) and expand (how many store boundaries to cross) are two numbers on one call, not two tools.
+
+  On "hope that's going to work for more than UA nodesets" — partly, and the split is worth deciding now. The walk is generic: resolve-db-id, deeper and walk-final are
+  ordinary Datahike graph-walking with a visited set and a depth bound, and they'd work against any DB. What's UA-specific is the addressing: nsu=<uri>;<id>, :Node/id as
+  the lookup attribute, and :Node/ref as the boundary marker. So a general resolve_node needs its address argument to accept an eid or lookup-ref when the target isn't
+  a nodeset store. My question: do you want that generality in the first cut, or should the tool be nodeset-shaped now with the walk factored so it can be lifted later?
+  I'd do the latter — the generic walk already exists as separate functions, so lifting it costs little, and designing an address abstraction with one consumer usually
+  gets it wrong.
+
+  Q3 — I don't disagree, and your reason is the right one
+
+  One file. Your distinction is the one I'd have argued for: RADmapper generation happens after the mapping is solved, so a reader can be sent away to a separate guide
+  at a clean boundary. Querying nodesets is how the mapping gets solved — it's interleaved with choosing a DS, reading an ASCR, and judging whether a binding is real.
+  Splitting that out would make the orchestrator consult two documents to do one job. Only consequence to flag: the guide goes from 205 to roughly 300 lines.
+
+  DB_SCHEMA.md — agreed, and one shaping note
+
+  Currently generated from Tessell's own two schemas. A nodeset section is a third source, with a useful property: the schema lives in each store, so it can be generated
+  by reading the store rather than from a file — which means a profile that added attributes shows up automatically.
+
+  The shaping problem is size: the Part 5 schema is 211 idents, and ~137 of them are :P5StdRefType/* — the reference types and their inverses. Listing those would swamp
+  everything else. I'd group by entity namespace (Node, NodeSet, Model, RequiredModel, UATypes, P3QualifiedName, box, …) and give P5StdRefType a summary line plus a
+  pointer to querying :db/ident directly, since what the orchestrator needs there is "how do I find the reference types" rather than all 137 names.
+
+  Questions on your response
+
+  1. Path/ns for the new file — src/tessell/uaexp_util.clj, ns tessell.uaexp-util? That's what "for use in the tessell namespace" reads as, but confirm.
+  2. Does it carry the catalog reader too, not just the nodeset reader? The survey→connect flow starts in uaexp's system DB, so I'd include catalog access (list-stores,
+     summarize-stores, connect-key) alongside resolve-node/expand-n/nsuri. Roughly 350 lines rather than 300.
+  3. How do uaexp stores coexist with Tessell's registry? Tessell's sutil has its own databases-atm/connect-atm keyed by project keywords. uaexp keys stores by {:prefix
+     .. :version ..} maps and the catalog by :system — which would collide with Tessell's own :system. I'd give uaexp-util its own registry atom rather than sharing
+     Tessell's, so nothing about Tessell's DB handling has to change and the :system name can't clash. Agree?
+  4. Register at startup or lazily? A mount defstate calling discover-stores! when UAEXP_DB is set, degrading to a warning when it isn't, so Tessell still runs on a
+     machine with no nodesets. Sound right?
+
+  Holding off on writing until you answer — you said nothing to do yet.
+**** Me
+Okay, just to be sure I'm understanding you, you said:
+"What I actually meant, and said badly: the db_query tool surface can't name a nodeset store. DbQuery is :closed true with [:enum :project :system], and validate-inputs
+ rejects anything else before execute-tool runs — so even with every uaexp store registered in Tessell's databases-atm, the orchestrator has no argument it can pass.
+ Execution then maps db_type to :system or (sdb/get-current-project); there's no third branch. That's the (a) change, and it's a change to the tool, not to Tessell's
+ reach. I should have said "the orchestrator can't address them", not "Tessell can't reach them.""
+
+The enum will be extended with :nodeset and :uaexp. The call to `db_query` in the case of :nodeset will have to use the nodeset's canonical name.
+That name can use the function that maps it 1-1 to a UUID ???
+
+My question: do you want that generality in the first cut, or should the tool be nodeset-shaped now with the walk factored so it can be lifted later?
+Yeah, let's put "that generality" into it here. See what it looks like. I think we'll be seeing this situation in other SDO artifacts.
+
+(More on Q3): Your comment makes me wonder whether RM generation might better be done as a skill applied after the solution is produced.
+OTOH, the output of the skill should be validated by running the RM code on some (synthetic?) data.
+If you have any thoughts on this, maybe make note of it; we should discuss it later, I suppose.
+
+Great point about the ~137 :5StdRefType. I guess that's a discussion for Claude on Tessell.
+
+Your questions:
+Q1: Yes, that's what I meant.
+
+Q2: Yes, anything you need there for catalog reading place it there, though I was hoping not to proliferate many MCP tools. Is there another tool needed?
+
+Q3: I don't think the connections need to "coexist" in the sense of using Tessel's registry. The tool implementations use raw datahike functions to connect
+(talking here about both `db_query` when called with :nodeset, or :uaexp, and calls to `resolve_node`. So maybe you don't even need a registry atom.
+I prefer not to have one.
+
+Q4: Following my Q3 answer, there wouldn't be a registry, just calls after doing the work with raw DH functions.
+**** Claude
+ The guide is rewritten — 205 → 351 lines, one file as you decided.
+
+  What changed
+
+  A new §4 "The standard, as a database", placed right after "Which DS comes next" — because once the target standard is selected, the next question is what it actually
+  says. Everything after renumbered (old §4–9 → §5–10), and the three existing cross-references updated.
+
+  Every query and every output in it is real, run against your stores just now:
+
+  - the catalog survey returning the four store ids
+  - MachineOperationMonitoringType = i=26, and its five members: FeedOverride, OperationMode, Obligation, IsWarmUp, PowerOnDuration
+  - the ModellingRule query: OperationMode is i=78 Mandatory, the other four i=80 Optional
+  - the three-namespace SubtypeOf chain
+
+  The section that matters most is the inheritance trap: 40 of 40501-1's 62 ObjectTypes inherit from outside the file, so NotificationEventType's BaseEventType members
+  appear nowhere in the standard's own text. That's framed as the one thing the orchestrator can find that prefill_ascr structurally cannot — which is the argument for
+  querying at all.
+
+  The pitfalls are things I actually hit while building this:
+
+  - Browse names carry no 1: prefix here (uaexp strips the file-local index at load).
+  - A member with no :Node/data-type is an Object, not a Variable — joining on it silently drops Obligation and returns four of five. I made exactly that mistake
+    generating the example.
+  - {:Node/ref ...} is an address, not a node.
+  - The base UA store is 5820 nodes; don't pull [*] across it.
+
+  Wiring into the rest
+
+  - §3 now says db_query reaches four databases, not two.
+  - §5 gains a fourth thing worth checking when an interview returns: does the model cover what the standard makes Mandatory — asked of the store, not the ASCR, since
+    inherited members are the ones that go missing.
+  - §6 points the "check the attribute names are the standard's" advice at §4, since the store is the only authority on that. That connects to the documented failure
+    where a run passed every check using ASCR names.
+  - §8 tools table: db_query row updated, resolve_node row added.
+  - §10 "Not yet built" — I used the guide's own existing convention rather than inventing a marker. It names the two pending changes (db_type extension with store_id,
+    and resolve_node), tells the orchestrator to say so rather than wo Jump to bottom (ctrl+End) ↓ tes the UAEXP_DB dependency. Delete that first paragraph once the
+    tools land.
+
+  One thing I left out deliberately
+
+  resolve_node is general — resolve-entity in uaexp_util.clj takes any database value, an eid or lookup-ref or id-string, and a dialect; I tested it against uaexp's own
+  catalog with plain-dialect. I didn't document that generality in the guide, because the guide should teach the job rather than the API surface, and an orchestrator
+  told it can walk arbitrary databases will try to. Worth exposing later if a second use appears.
+
+  uaexp_util.clj is untracked in Tessell's tree for your review; TESSELL_MCP_GUIDE.md is modified in place.
+**** Me

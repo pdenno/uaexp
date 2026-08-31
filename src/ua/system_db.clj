@@ -256,8 +256,12 @@
                   (as-> $b (assoc $b :build/id (str store-id "|" (.toInstant ^java.util.Date (:build/at $b))))))]
     (when-let [build (validate! Build build "build")]
       (with-connect-atom [conn :system]
-        (d/transact conn {:tx-data [(assoc build :db/id -1)
-                                    {:db/id eid :store/builds -1 :store/current-build -1}]}))
+        ;; Two transactions rather than one. Naming the same tempid from both :store/builds and
+        ;; :store/current-build in a single tx expands the build's nested maps once per reference,
+        ;; so every :build/requires and :build/foreign entity was created twice.
+        (let [{:keys [tempids]} (d/transact conn {:tx-data [(assoc build :db/id -1)]})
+              bid (get tempids -1)]
+          (d/transact conn {:tx-data [{:db/id eid :store/builds bid :store/current-build bid}]})))
       (log! :info (str "Recorded build of " store-id " (" (:build/node-count build) " nodes)."))
       (:build/id build))))
 
